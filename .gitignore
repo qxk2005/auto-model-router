@@ -8,3 +8,4 @@ experiments/runs/
 .DS_Store
 reports/*.html
 !reports/.gitkeep
+.python-version
