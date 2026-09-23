@@ -9,3 +9,5 @@ experiments/runs/
 reports/*.html
 !reports/.gitkeep
 .python-version
+scratch/
+
