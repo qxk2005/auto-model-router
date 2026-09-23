@@ -272,8 +272,12 @@ function renderModels() {
       <td>${m.free ? '<span style="color:var(--success); font-weight:600;">✓ 免费(0成本)</span>' : '<span style="color:var(--text-dim);">计费</span>'}</td>
       <td>${formatDualPrice(p.input)}</td>
       <td>${formatDualPrice(p.output)}</td>
-      <td>${formatDualPrice(p.cache_read || 0)}</td>
-      <td>${(m.context_tokens || 32768) / 1024}k</td>
+      <td>
+        ${(m.context_tokens || 32768) / 1024}k
+        <div style="font-size:11px; margin-top:2px;">
+          ${m.timeout_seconds ? `<span class="badge badge-purple" style="font-size:10px; padding:2px 5px;">⏱️ ${m.timeout_seconds}s</span>` : `<span style="color:var(--text-dim); font-size:10px;">⏱️ 继承(${currentConfig?.policy?.request_timeout_seconds || 60}s)</span>`}
+        </div>
+      </td>
       <td>${probeHtml}</td>
       <td>
         <div class="action-btns-group">
@@ -301,6 +305,7 @@ function renderPolicyForm() {
   document.getElementById("detectProbInput").value = pol.detect_prob || 0.6;
   document.getElementById("failureCostInput").value = pol.failure_cost_multiplier || 1.0;
   document.getElementById("remainingTurnsInput").value = pol.remaining_turns || 3.0;
+  document.getElementById("requestTimeoutInput").value = pol.request_timeout_seconds || 60;
 
   document.getElementById("classifierBackendSelect").value = clf.backend || "local";
   document.getElementById("layaDeviceSelect").value = clf.device || "auto";
@@ -317,6 +322,7 @@ async function savePolicyConfig() {
   currentConfig.policy.detect_prob = parseFloat(document.getElementById("detectProbInput").value);
   currentConfig.policy.failure_cost_multiplier = parseFloat(document.getElementById("failureCostInput").value);
   currentConfig.policy.remaining_turns = parseFloat(document.getElementById("remainingTurnsInput").value);
+  currentConfig.policy.request_timeout_seconds = parseFloat(document.getElementById("requestTimeoutInput").value) || 60;
 
   const usdRate = parseFloat(document.getElementById("usdCnyRateInput")?.value) || 7.20;
   currentConfig.policy.currency = {
@@ -400,12 +406,19 @@ async function runSingleTest() {
 
       document.getElementById("singleTestResult").style.display = "block";
 
-      // 1. Core Metrics
+      // 1. Core Metrics & Timeout Badge
       document.getElementById("resCategory").textContent = data.classification?.category || "general";
       document.getElementById("resDifficulty").textContent = data.classification?.difficulty !== undefined ? data.classification.difficulty.toFixed(3) : "0.500";
       document.getElementById("resStakes").textContent = data.classification?.stakes !== undefined ? data.classification.stakes.toFixed(3) : "0.200";
       document.getElementById("resTotalLatency").textContent = `${data.timing?.total_latency_ms || 0} ms`;
       document.getElementById("resChosenModel").textContent = `${data.decision?.chosen_model || '--'} (提供商: ${data.decision?.provider || '--'} | ${data.decision?.reason || '期望成本最小化'})`;
+
+      const tBadge = document.getElementById("resTimeoutBadge");
+      const effectiveTimeout = data.decision?.timeout_seconds || data.upstream_response?.timeout_seconds || (currentConfig?.policy?.request_timeout_seconds || 60);
+      if (tBadge) {
+        tBadge.textContent = `⏱️ 超时时限: ${effectiveTimeout}s`;
+        tBadge.style.display = "inline-flex";
+      }
 
       // 2. Timing Breakdown
       const timing = data.timing || {};
@@ -1165,6 +1178,7 @@ function openAddModelModal() {
   document.getElementById("capMathInput").value = "0.85";
   document.getElementById("capReasoningInput").value = "0.85";
   document.getElementById("capGeneralInput").value = "0.85";
+  document.getElementById("modelTimeoutInput").value = "";
 
   switchModelModalTab("basics");
   onModelProviderChanged();
@@ -1222,6 +1236,9 @@ function openEditModelModal(modelIdx) {
   document.getElementById("modelInputPrice").value = p.input !== undefined ? p.input : 0;
   document.getElementById("modelOutputPrice").value = p.output !== undefined ? p.output : 0;
   document.getElementById("modelCachePrice").value = p.cache_read !== undefined ? p.cache_read : 0;
+
+  // Timeout input
+  document.getElementById("modelTimeoutInput").value = (m.timeout_seconds !== undefined && m.timeout_seconds !== null) ? m.timeout_seconds : "";
 
   // Context tokens
   const ctxSelect = document.getElementById("modelContextSelect");
@@ -1402,6 +1419,8 @@ function saveModelFromModal() {
   const capMath = parseFloat(document.getElementById("capMathInput").value) || 0.85;
   const capReasoning = parseFloat(document.getElementById("capReasoningInput").value) || 0.85;
   const capGeneral = parseFloat(document.getElementById("capGeneralInput").value) || 0.85;
+  const timeoutVal = document.getElementById("modelTimeoutInput").value.trim();
+  const timeoutSec = timeoutVal ? (parseFloat(timeoutVal) || null) : null;
 
   if (!currentConfig.models) currentConfig.models = [];
 
@@ -1423,6 +1442,11 @@ function saveModelFromModal() {
       reasoning: Math.round(capReasoning * 100),
       general: Math.round(capGeneral * 100),
     };
+    if (timeoutSec !== null) {
+      target.timeout_seconds = timeoutSec;
+    } else {
+      delete target.timeout_seconds;
+    }
     savePolicyConfig();
     closeModal("modelModal");
     showToast(`模型 [${name}] 属性已成功更新！`, "success");
@@ -1452,6 +1476,7 @@ function saveModelFromModal() {
       context_tokens: contextTokens,
       tools: true,
       vision: false,
+      ...(timeoutSec !== null ? { timeout_seconds: timeoutSec } : {}),
     });
     savePolicyConfig();
     closeModal("modelModal");

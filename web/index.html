@@ -173,9 +173,14 @@
                   <span class="r-label">全程总耗时 (Total Duration)</span>
                   <span class="r-val highlight-green" id="resTotalLatency">-- ms</span>
                 </div>
-                <div class="result-item full-width">
-                  <span class="r-label">选定分配模型 (Target Route)</span>
-                  <span class="r-val highlight-blue" id="resChosenModel">--</span>
+                <div class="result-item full-width" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                  <div>
+                    <span class="r-label">选定分配模型 (Target Route)</span>
+                    <span class="r-val highlight-blue" id="resChosenModel">--</span>
+                  </div>
+                  <span class="badge badge-purple" id="resTimeoutBadge" style="display: none; font-size: 11.5px; padding: 4px 10px;">
+                    ⏱️ 超时上限: --s
+                  </span>
                 </div>
               </div>
 
@@ -344,6 +349,12 @@
             <div class="form-group">
               <label for="remainingTurnsInput">会话预期剩余轮次 (Remaining Turns Horizon)</label>
               <input type="number" step="0.5" id="remainingTurnsInput" class="form-control" value="3.0">
+            </div>
+
+            <div class="form-group">
+              <label for="requestTimeoutInput">全局上游模型请求超时 (Request Timeout, 秒)</label>
+              <input type="number" step="5" min="5" max="3600" id="requestTimeoutInput" class="form-control" value="60">
+              <small class="form-hint">调用上游模型端点的全局默认超时（秒）；未单独设置超时的模型将自动继承此默认值</small>
             </div>
 
             <div class="form-group">
@@ -852,6 +863,11 @@
                 <option value="1048576">1M (1,048,576)</option>
               </select>
             </div>
+            <div class="form-group">
+              <label>请求超时时限 (Timeout, 秒)</label>
+              <input type="number" step="5" min="5" max="3600" id="modelTimeoutInput" class="form-control" placeholder="留空则继承全局 60s (推荐本地模型 120s~180s)">
+              <small class="form-hint">调用该模型端点时的专属超时上限；留空时自动继承全局策略默认值</small>
+            </div>
           </div>
           <div style="padding: 10px 12px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--border-color); font-size: 12px; color: var(--text-muted);">
             💡 提示：输入与输出价格为模型调用的基础计费单位，基准货币为人民币（¥），美金（$）根据全局汇率换算展示。免费模型无需输入。
@@ -990,6 +1006,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=20260923_vram_v2"></script>
+  <script src="/web/app.js?v=20260923_timeout_v1"></script>
 </body>
 </html>

@@ -211,6 +211,11 @@ def build_model(entry: dict, providers: dict[str, Provider],
         success_key=entry.get("success_key"),
         runner=entry.get("runner"),
         launch_only=bool(entry.get("launch_only", False)),
+        timeout_s=(
+            float(entry["timeout_seconds"])
+            if entry.get("timeout_seconds") is not None
+            else (float(entry["timeout_s"]) if entry.get("timeout_s") is not None else None)
+        ),
     )
 
 

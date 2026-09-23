@@ -154,6 +154,9 @@ class ModelInfo:
     #: invite an implementation to send one vendor's login to another. Such a
     #: route is a candidate for the launcher and for nothing else.
     launch_only: bool = False
+    #: Custom request timeout in seconds for this model endpoint.
+    #: If None, falls back to the global router policy request_timeout_seconds.
+    timeout_s: float | None = None
 
     @property
     def free(self) -> bool:
