@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Auto-LLM-Router 控制台 | Laya on Apple M4 Max</title>
-  <link rel="stylesheet" href="/web/style.css?v=20260923_pagination_fix1">
+  <link rel="stylesheet" href="/web/style.css?v=20260923_subsets_v1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -546,30 +546,41 @@
                   <span>仅看开源模型 (Open Source)</span>
                 </label>
               </div>
-              <div>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                 <label style="display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #166534; font-weight: 600; cursor: pointer; user-select: none; background: #f0fdf4; padding: 4px 10px; border-radius: 6px; border: 1px solid #bbf7d0;">
                   <input type="checkbox" id="chkFilterOnlyConfigured" onchange="toggleTableCandidateFilter(this.checked)">
                   <span>仅看当前路由候选模型</span>
                 </label>
+
+                <!-- Column Settings Dropdown Trigger -->
+                <div style="position: relative;">
+                  <button class="btn btn-secondary btn-sm" id="btnToggleColPicker" onclick="toggleColumnPickerDropdown(event)" style="display: flex; align-items: center; gap: 5px;" title="自定义显示 Hugging Face 22 个评测子项目">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+                    <span>⚙️ 自定义显示列</span>
+                    <span class="subnav-badge" id="selectedColCountBadge">6</span>
+                  </button>
+                  <!-- Dropdown Panel -->
+                  <div class="col-picker-dropdown" id="lbColumnsDropdown" style="display: none;" onclick="event.stopPropagation()">
+                    <div class="col-picker-header">
+                      <div>
+                        <strong>设置显示列与评分项目</strong>
+                        <div style="font-size: 11px; color: var(--text-muted);">涵盖 Hugging Face 全量 22 个评测子表</div>
+                      </div>
+                      <button class="btn btn-xs btn-link" onclick="resetDefaultColumns()" style="font-size: 11.5px; padding: 2px 6px; color: var(--primary); text-decoration: none; cursor: pointer;">恢复默认 (6项)</button>
+                    </div>
+                    <div class="col-picker-body" id="colPickerGroupsContainer">
+                      <!-- Dynamically rendered by category -->
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
             <!-- Data Table Body -->
             <div class="table-wrap">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th style="width: 60px; text-align: center;">排名</th>
-                    <th>模型名称 (Model)</th>
-                    <th>研发机构 (Org)</th>
-                    <th style="text-align: right;">综合 Elo</th>
-                    <th style="text-align: right;">代码 Elo</th>
-                    <th style="text-align: right;">数理 Elo</th>
-                    <th style="text-align: right;">推理 Elo</th>
-                    <th>开源许可 (License)</th>
-                    <th>路由状态</th>
-                    <th>操作</th>
-                  </tr>
+              <table class="data-table" id="leaderboardMainTable">
+                <thead id="leaderboardTableHeader">
+                  <!-- Dynamically populated with sortable column headers -->
                 </thead>
                 <tbody id="leaderboardTableBody">
                   <!-- Dynamically populated -->
@@ -976,6 +987,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=20260923_pagination_fix1"></script>
+  <script src="/web/app.js?v=20260923_subsets_v1"></script>
 </body>
 </html>

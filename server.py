@@ -864,6 +864,8 @@ async def batch_delete_reports(payload: BatchDeleteReportsRequest):
 async def get_leaderboard(
     search: str | None = None,
     category: str | None = None,
+    sort_col: str | None = None,
+    sort_order: str = "desc",
     open_source_only: bool = False,
     candidate_only: bool = False,
 ):
@@ -891,8 +893,23 @@ async def get_leaderboard(
             if str(m.get("license", "")).lower() not in ("proprietary", "closed", "commercial")
         ]
 
-    # Sort by category rating if requested
-    if category in ("coding", "math", "hard"):
+    # Sort by column or category rating if requested
+    reverse = (sort_order.lower() != "asc")
+    if sort_col:
+        # Check if sort_col is in subsets or top-level
+        def _get_sort_val(item: dict) -> float:
+            subsets = item.get("subsets", {})
+            if sort_col in subsets:
+                sub_info = subsets[sort_col]
+                return float(sub_info.get("elo") or 0.0)
+            if sort_col in item:
+                try:
+                    return float(item[sort_col])
+                except (ValueError, TypeError):
+                    return 0.0
+            return 0.0
+        entries = sorted(entries, key=_get_sort_val, reverse=reverse)
+    elif category in ("coding", "math", "hard"):
         cat_key = f"rating_{category}"
         entries = sorted(entries, key=lambda x: x.get(cat_key, 0.0), reverse=True)
     else:
@@ -935,6 +952,7 @@ async def get_leaderboard(
         "total": len(results),
         "last_updated": all_data.get("last_updated", ""),
         "source": all_data.get("source", ""),
+        "subsets_meta": all_data.get("subsets_meta", {}),
         "data": results,
         "candidate_comparison": candidate_comparison_list,
     }
@@ -1022,6 +1040,7 @@ async def apply_leaderboard_to_model(req: ApplyLeaderboardRequest):
     c_math = int(round(prof.get("math", 0.85) * 100))
     c_reasoning = int(round(prof.get("reasoning", 0.85) * 100))
     c_general = int(round(prof.get("general", 0.85) * 100))
+    c_agentic = int(round(prof.get("agentic", prof.get("reasoning", 0.85)) * 100))
 
     if "capability" not in target:
         target["capability"] = {}
@@ -1032,8 +1051,11 @@ async def apply_leaderboard_to_model(req: ApplyLeaderboardRequest):
     target["capability"]["general"] = c_general
     target["capability"]["knowledge"] = c_general
     target["capability"]["summarisation"] = c_general
-    target["capability"]["agentic"] = c_reasoning
-    target["capability"]["tool_use"] = c_coding
+    target["capability"]["agentic"] = c_agentic
+    target["capability"]["tool_use"] = max(c_agentic, c_coding)
+
+    if prof.get("vision", 0.0) >= 0.70:
+        target["vision"] = True
 
     save_config(cfg)
     reload_router_system()
@@ -1065,6 +1087,7 @@ async def apply_all_candidates_leaderboard():
         c_math = int(round(prof.get("math", 0.85) * 100))
         c_reasoning = int(round(prof.get("reasoning", 0.85) * 100))
         c_general = int(round(prof.get("general", 0.85) * 100))
+        c_agentic = int(round(prof.get("agentic", prof.get("reasoning", 0.85)) * 100))
 
         if "capability" not in target:
             target["capability"] = {}
@@ -1075,8 +1098,11 @@ async def apply_all_candidates_leaderboard():
         target["capability"]["general"] = c_general
         target["capability"]["knowledge"] = c_general
         target["capability"]["summarisation"] = c_general
-        target["capability"]["agentic"] = c_reasoning
-        target["capability"]["tool_use"] = c_coding
+        target["capability"]["agentic"] = c_agentic
+        target["capability"]["tool_use"] = max(c_agentic, c_coding)
+
+        if prof.get("vision", 0.0) >= 0.70:
+            target["vision"] = True
 
         updated.append({
             "model": target.get("name"),
