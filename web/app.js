@@ -10,6 +10,7 @@ let activeProbeModelIdx = null;
 
 // Initialize
 document.addEventListener("DOMContentLoaded", () => {
+  initLeaderboardPagination();
   refreshStatus();
   loadConfig();
   loadReportsList();
@@ -1660,6 +1661,141 @@ function onArenaManualSelectChanged() {
 let currentLbCategory = "overall";
 let isCandidateComparisonOnly = false;
 let lbSearchTimer = null;
+let cachedLeaderboardList = [];
+
+// ---------------------------------------------------------------------------
+// Leaderboard Pagination State & Controls
+// ---------------------------------------------------------------------------
+let lbCurrentPage = 1;
+let lbPageSize = 20;
+
+function initLeaderboardPagination() {
+  const savedSize = localStorage.getItem("amra_lb_page_size");
+  if (savedSize && ["20", "50", "100", "200"].includes(savedSize)) {
+    lbPageSize = parseInt(savedSize, 10);
+  } else {
+    lbPageSize = 20;
+  }
+  const select = document.getElementById("lbPageSizeSelect");
+  if (select) {
+    select.value = String(lbPageSize);
+  }
+}
+
+function onLeaderboardPageSizeChange(val) {
+  lbPageSize = parseInt(val, 10) || 20;
+  localStorage.setItem("amra_lb_page_size", String(lbPageSize));
+  lbCurrentPage = 1;
+  renderLeaderboardTable(cachedLeaderboardList);
+}
+
+function changeLeaderboardPage(page) {
+  const totalPages = Math.ceil(cachedLeaderboardList.length / lbPageSize) || 1;
+  const target = Math.max(1, Math.min(page, totalPages));
+  if (target !== lbCurrentPage) {
+    lbCurrentPage = target;
+    renderLeaderboardTable(cachedLeaderboardList);
+    const card = document.querySelector(".integrated-table-card");
+    if (card && card.getBoundingClientRect().top < 0) {
+      card.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+}
+
+function prevLeaderboardPage() {
+  if (lbCurrentPage > 1) {
+    changeLeaderboardPage(lbCurrentPage - 1);
+  }
+}
+
+function nextLeaderboardPage() {
+  const totalPages = Math.ceil(cachedLeaderboardList.length / lbPageSize) || 1;
+  if (lbCurrentPage < totalPages) {
+    changeLeaderboardPage(lbCurrentPage + 1);
+  }
+}
+
+function lastLeaderboardPage() {
+  const totalPages = Math.ceil(cachedLeaderboardList.length / lbPageSize) || 1;
+  changeLeaderboardPage(totalPages);
+}
+
+function jumpLeaderboardPage() {
+  const input = document.getElementById("lbJumpPageInput");
+  if (!input) return;
+  const val = parseInt(input.value, 10);
+  const totalPages = Math.ceil(cachedLeaderboardList.length / lbPageSize) || 1;
+  if (!val || isNaN(val)) return;
+  changeLeaderboardPage(Math.max(1, Math.min(val, totalPages)));
+  input.value = "";
+}
+
+function renderLeaderboardPagination(totalItems) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / lbPageSize));
+  if (lbCurrentPage > totalPages) {
+    lbCurrentPage = totalPages;
+  }
+
+  const totalCountEl = document.getElementById("lbTotalCount");
+  const currentPageEl = document.getElementById("lbCurrentPage");
+  const totalPagesEl = document.getElementById("lbTotalPages");
+  const btnFirst = document.getElementById("btnLbFirstPage");
+  const btnPrev = document.getElementById("btnLbPrevPage");
+  const btnNext = document.getElementById("btnLbNextPage");
+  const btnLast = document.getElementById("btnLbLastPage");
+  const numbersContainer = document.getElementById("lbPaginationNumbers");
+
+  if (totalCountEl) totalCountEl.textContent = totalItems;
+  if (currentPageEl) currentPageEl.textContent = totalItems > 0 ? lbCurrentPage : 0;
+  if (totalPagesEl) totalPagesEl.textContent = totalPages;
+
+  if (btnFirst) btnFirst.disabled = (lbCurrentPage <= 1 || totalItems === 0);
+  if (btnPrev) btnPrev.disabled = (lbCurrentPage <= 1 || totalItems === 0);
+  if (btnNext) btnNext.disabled = (lbCurrentPage >= totalPages || totalItems === 0);
+  if (btnLast) btnLast.disabled = (lbCurrentPage >= totalPages || totalItems === 0);
+
+  if (!numbersContainer) return;
+  numbersContainer.innerHTML = "";
+  if (totalItems === 0) return;
+
+  const pagesToShow = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pagesToShow.push(i);
+  } else {
+    if (lbCurrentPage <= 4) {
+      for (let i = 1; i <= 5; i++) pagesToShow.push(i);
+      pagesToShow.push("...");
+      pagesToShow.push(totalPages);
+    } else if (lbCurrentPage >= totalPages - 3) {
+      pagesToShow.push(1);
+      pagesToShow.push("...");
+      for (let i = totalPages - 4; i <= totalPages; i++) pagesToShow.push(i);
+    } else {
+      pagesToShow.push(1);
+      pagesToShow.push("...");
+      pagesToShow.push(lbCurrentPage - 1);
+      pagesToShow.push(lbCurrentPage);
+      pagesToShow.push(lbCurrentPage + 1);
+      pagesToShow.push("...");
+      pagesToShow.push(totalPages);
+    }
+  }
+
+  pagesToShow.forEach(p => {
+    if (p === "...") {
+      const span = document.createElement("span");
+      span.className = "pagination-ellipsis";
+      span.textContent = "…";
+      numbersContainer.appendChild(span);
+    } else {
+      const btn = document.createElement("button");
+      btn.className = `btn btn-sm btn-secondary pagination-btn ${p === lbCurrentPage ? 'active' : ''}`;
+      btn.textContent = p;
+      btn.onclick = () => changeLeaderboardPage(p);
+      numbersContainer.appendChild(btn);
+    }
+  });
+}
 
 // Sub-feature tab switching inside Leaderboard page
 function switchLeaderboardSubtab(subtabKey) {
@@ -1677,6 +1813,7 @@ function switchLeaderboardSubtab(subtabKey) {
 
 function toggleTableCandidateFilter(checked) {
   isCandidateComparisonOnly = checked;
+  lbCurrentPage = 1;
   loadLeaderboardData();
 }
 
@@ -1707,7 +1844,7 @@ async function loadLeaderboardData() {
     // Render candidate comparison cards
     renderCandidateComparisonCards(json.candidate_comparison || []);
 
-    // Render leaderboard table
+    // Render leaderboard table with pagination
     renderLeaderboardTable(cachedLeaderboardList);
   } catch (err) {
     console.error("Failed to load leaderboard data:", err);
@@ -1816,20 +1953,26 @@ function renderLeaderboardTable(models) {
   const tbody = document.getElementById("leaderboardTableBody");
   if (!tbody) return;
 
+  renderLeaderboardPagination(models.length);
+
   if (models.length === 0) {
     tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 30px;">未检索到符合条件的评测大模型</td></tr>`;
     return;
   }
 
+  const startIndex = (lbCurrentPage - 1) * lbPageSize;
+  const endIndex = Math.min(startIndex + lbPageSize, models.length);
+  const pageModels = models.slice(startIndex, endIndex);
+
   tbody.innerHTML = "";
-  models.forEach((m, idx) => {
+  pageModels.forEach((m, idx) => {
     const isCandidate = !!m.is_candidate;
     const tr = document.createElement("tr");
     if (isCandidate) {
       tr.style.background = "#f0fdf4";
     }
 
-    const rankDisplay = idx + 1;
+    const rankDisplay = startIndex + idx + 1;
     const rankBadgeClass = rankDisplay === 1 ? 'color: #eab308; font-weight:800;' : (rankDisplay <= 3 ? 'color: #0284c7; font-weight:700;' : 'color: var(--text-muted);');
 
     tr.innerHTML = `
@@ -1868,6 +2011,7 @@ function renderLeaderboardTable(models) {
 
 function setLeaderboardCategory(cat) {
   currentLbCategory = cat;
+  lbCurrentPage = 1;
   const btns = {
     overall: document.getElementById("btnLbCatOverall"),
     coding: document.getElementById("btnLbCatCoding"),
@@ -1882,6 +2026,7 @@ function setLeaderboardCategory(cat) {
 
 function toggleCandidateComparisonOnly() {
   isCandidateComparisonOnly = !isCandidateComparisonOnly;
+  lbCurrentPage = 1;
   const btn = document.getElementById("btnToggleCandidateComparison");
   const txt = document.getElementById("btnCandidateComparisonText");
 
@@ -1900,11 +2045,13 @@ function toggleCandidateComparisonOnly() {
 function onLeaderboardSearchInput() {
   clearTimeout(lbSearchTimer);
   lbSearchTimer = setTimeout(() => {
+    lbCurrentPage = 1;
     loadLeaderboardData();
   }, 250);
 }
 
 function onLeaderboardFilterChange() {
+  lbCurrentPage = 1;
   loadLeaderboardData();
 }
 
