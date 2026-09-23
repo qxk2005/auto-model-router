@@ -42,12 +42,33 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+try:
+    import dotenv
+    dotenv.load_dotenv()
+except ImportError:
+    pass
+
 from .bench import BenchmarkClient, capability_evidence, context_length, pick_offer
 from .catalog import CONFIG_OVERRIDE, DEFAULT_CACHE_RULES, CacheRules, Catalog, ModelInfo, Prices
+
+
+def expand_env_vars(text: str | None) -> str | None:
+    """Expand ${VAR} and $VAR environment variable placeholders."""
+    if not text or not isinstance(text, str):
+        return text
+    def _sub(match):
+        var = match.group(1)
+        default = match.group(3) if match.group(2) else ""
+        return os.environ.get(var, default)
+    expanded = re.sub(r"\$\{([A-Za-z0-9_]+)(:-(.*?))?\}", _sub, text)
+    if expanded.startswith("$") and len(expanded) > 1 and re.match(r"^\$[A-Za-z0-9_]+$", expanded):
+        expanded = os.environ.get(expanded[1:], "")
+    return expanded
 
 
 @dataclass
@@ -62,10 +83,18 @@ class Provider:
     api: str = "openai"
 
     @property
+    def resolved_base_url(self) -> str:
+        url = expand_env_vars(self.base_url) or self.base_url
+        return url.rstrip("/")
+
+    @property
     def api_key(self) -> str | None:
         if self.api_key_literal:
-            return self.api_key_literal
-        return os.environ.get(self.api_key_env) if self.api_key_env else None
+            expanded = expand_env_vars(self.api_key_literal)
+            return expanded if expanded else self.api_key_literal
+        if self.api_key_env:
+            return os.environ.get(self.api_key_env)
+        return None
 
 
 @dataclass
@@ -197,10 +226,19 @@ def for_http(config: RouterConfig) -> RouterConfig:
 
 def load_config(path: str | Path | None = None, *, bench: BenchmarkClient | None = None,
                 use_bench: bool = True) -> RouterConfig:
+    try:
+        import dotenv
+        dotenv.load_dotenv()
+    except ImportError:
+        pass
+
     path = path or os.environ.get("AUTO_ROUTER_CONFIG")
     if not path:
+        local_p = Path("config/router_config.local.json")
         default_p = Path("config/router_config.json")
-        if default_p.exists():
+        if local_p.exists():
+            path = local_p
+        elif default_p.exists():
             path = default_p
     if not path or not Path(path).exists():
         return RouterConfig(providers={}, catalog=Catalog([]))
@@ -227,7 +265,17 @@ def load_config(path: str | Path | None = None, *, bench: BenchmarkClient | None
 
 def save_config(raw: dict, path: str | Path | None = None) -> str:
     """Save raw configuration dict to JSON or YAML."""
-    p = Path(path or os.environ.get("AUTO_ROUTER_CONFIG") or "config/router_config.json")
+    if not path:
+        env_p = os.environ.get("AUTO_ROUTER_CONFIG")
+        if env_p:
+            path = env_p
+        else:
+            local_p = Path("config/router_config.local.json")
+            if local_p.exists():
+                path = local_p
+            else:
+                path = Path("config/router_config.json")
+    p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     if str(p).endswith((".yaml", ".yml")):
         import yaml

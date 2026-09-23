@@ -71,14 +71,20 @@ def test_one_usage_reader_reports_several_plans_without_mixing_them(tmp_path, mo
     Found live: both subscriptions were configured with the same reader, and
     the second plan was paced with the first plan's numbers.
     """
+    import sys
     from auto_router import quota
-
-    reader = tmp_path / "usage"
-    reader.write_text('#!/bin/sh\necho \'{"claude": {"week_percent": 94}, "codex": {"week_percent": 40}}\'\n')
-    reader.chmod(0o755)
+    if sys.platform == "win32":
+        reader = tmp_path / "usage.py"
+        reader.write_text('print(\'{"claude": {"week_percent": 94}, "codex": {"week_percent": 40}}\')\n')
+        cmd = [sys.executable, str(reader)]
+    else:
+        reader = tmp_path / "usage"
+        reader.write_text('#!/bin/sh\necho \'{"claude": {"week_percent": 94}, "codex": {"week_percent": 40}}\'\n')
+        reader.chmod(0o755)
+        cmd = [str(reader)]
     monkeypatch.setattr(quota, "_command_cache", {})
-    first = quota.from_command([str(reader)], "claude")
-    second = quota.from_command([str(reader)], "codex")
+    first = quota.from_command(cmd, "claude")
+    second = quota.from_command(cmd, "codex")
     assert first.week_used == 0.94
     assert second.week_used == 0.40
 

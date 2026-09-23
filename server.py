@@ -65,11 +65,31 @@ WEB_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def get_current_raw_config() -> dict:
-    cfg_path = Path(os.environ.get("AUTO_ROUTER_CONFIG") or "config/router_config.json")
-    if cfg_path.exists():
-        with open(cfg_path, encoding="utf-8") as f:
+    cfg_path = os.environ.get("AUTO_ROUTER_CONFIG")
+    if not cfg_path:
+        local_p = Path("config/router_config.local.json")
+        if local_p.exists():
+            cfg_path = local_p
+        else:
+            cfg_path = Path("config/router_config.json")
+    p = Path(cfg_path)
+    if p.exists():
+        with open(p, encoding="utf-8") as f:
             return json.load(f)
     return {}
+
+
+def mask_secret(val: str | None) -> str | None:
+    """Mask sensitive API keys for safe display in WebUI."""
+    if not val or not isinstance(val, str):
+        return val
+    val = val.strip()
+    # 环境变量占位符原样展示
+    if val.startswith("${") or val.startswith("$"):
+        return val
+    if len(val) <= 8:
+        return "********"
+    return f"{val[:6]}********{val[-4:]}"
 
 
 def reload_router_system():
@@ -144,7 +164,13 @@ async def get_system_status():
 # ---------------------------------------------------------------------------
 @app.get("/api/config")
 async def get_config():
-    return get_current_raw_config()
+    """Return raw configuration with sensitive API keys masked for safety."""
+    import copy
+    cfg = copy.deepcopy(get_current_raw_config())
+    for prov_name, prov in (cfg.get("providers") or {}).items():
+        if isinstance(prov, dict) and "api_key" in prov:
+            prov["api_key"] = mask_secret(prov["api_key"])
+    return cfg
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -158,6 +184,15 @@ class ConfigUpdateRequest(BaseModel):
 async def update_config(payload: ConfigUpdateRequest):
     try:
         raw_dict = payload.dict()
+        existing_cfg = get_current_raw_config()
+        # 若传入的 api_key 为脱敏字符串 (包含 ***)，自动恢复使用库中原有真实密钥
+        for prov_name, prov in (raw_dict.get("providers") or {}).items():
+            if isinstance(prov, dict):
+                in_key = str(prov.get("api_key") or "")
+                if "***" in in_key:
+                    orig_prov = (existing_cfg.get("providers") or {}).get(prov_name, {})
+                    prov["api_key"] = orig_prov.get("api_key", in_key)
+
         save_config(raw_dict)
         reload_router_system()
         return {"status": "ok", "message": "配置已保存并实时生效"}
@@ -176,10 +211,12 @@ class ProviderTestRequest(BaseModel):
 
 @app.post("/api/provider/test")
 async def test_provider_endpoint(req: ProviderTestRequest):
-    base_url = req.base_url.rstrip("/")
+    from auto_router.config import expand_env_vars
+    base_url = (expand_env_vars(req.base_url) or req.base_url).rstrip("/")
+    api_key = expand_env_vars(req.api_key) or req.api_key
     headers = {}
-    if req.api_key:
-        headers["Authorization"] = f"Bearer {req.api_key}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     t0 = time.perf_counter()
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -366,8 +403,8 @@ async def test_single_prompt(req: SingleTestRequest):
     if not prompt:
         raise HTTPException(400, "prompt cannot be empty")
 
-    mode = req.mode or "predict_only"
-    max_tokens = max(1, min(req.max_tokens or 128, 4096))
+    mode = req.mode or "end_to_end"
+    max_tokens = max(1, min(req.max_tokens or 1024, 4096))
 
     logs: list[dict] = []
     def add_log(level: str, msg: str, stage: str = "general"):
@@ -422,51 +459,119 @@ async def test_single_prompt(req: SingleTestRequest):
                 "expected_total_cost": getattr(c, "expected_total_cost", None),
             })
 
+    # 默认触发端到端真实生成，除非显式指定 predict_only
+    if mode != "predict_only":
+        mode = "end_to_end"
+
+    dispatched_models: list[dict] = []
     upstream_data = None
     upstream_ms = 0.0
     verify_ms = 0.0
 
     if mode == "end_to_end":
-        provider = ar_server.config.providers.get(provider_name)
-        if not provider:
-            add_log("ERROR", f"未找到提供商 [{provider_name}] 配置，无法进行端到端调用", "upstream")
-            upstream_data = {"status": "error", "error": f"未配置提供商 [{provider_name}]"}
-        else:
-            base_url = provider.base_url.rstrip("/")
+        # 构建候选调度序列：首选模型优先，随后从 candidates 及 catalog 中挑选备选模型
+        candidate_models_to_try = [chosen_model]
+        if route_res.explanation and getattr(route_res.explanation, "candidates", None):
+            for c in route_res.explanation.candidates:
+                c_model = ar_server.config.catalog.get(c.model)
+                if c_model and c_model.name not in [m.name for m in candidate_models_to_try]:
+                    candidate_models_to_try.append(c_model)
+
+        for m in ar_server.config.catalog.all():
+            if m.name not in [x.name for x in candidate_models_to_try]:
+                candidate_models_to_try.append(m)
+
+        add_log("INFO", f"开始执行真实模型调用 (首选目标: [{chosen_name}], 候选备选池: {len(candidate_models_to_try)} 个模型)", "upstream")
+
+        # 最多尝试 3 个不同模型进行容灾调度
+        max_attempts = min(3, len(candidate_models_to_try))
+        for attempt_idx in range(max_attempts):
+            cur_target = candidate_models_to_try[attempt_idx]
+            cur_provider_name = cur_target.provider
+            cur_model_name = cur_target.name
+            cur_upstream_id = getattr(cur_target, "upstream_id", cur_model_name)
+            is_first_attempt = (attempt_idx == 0)
+
+            cur_provider = ar_server.config.providers.get(cur_provider_name)
+            if not cur_provider:
+                err_msg = f"未找到提供商 [{cur_provider_name}] 配置"
+                add_log("ERROR", f"调度尝试 #{attempt_idx + 1}: {err_msg}", "upstream")
+                dispatched_models.append({
+                    "attempt": attempt_idx + 1,
+                    "model_name": cur_model_name,
+                    "provider": cur_provider_name,
+                    "upstream_id": cur_upstream_id,
+                    "status": "error",
+                    "latency_ms": 0.0,
+                    "output": err_msg,
+                    "error": err_msg,
+                    "is_primary": is_first_attempt,
+                })
+                continue
+
+            base_url = cur_provider.base_url.rstrip("/")
             headers = {"Content-Type": "application/json"}
-            api_key = provider.api_key
+            api_key = cur_provider.api_key
             if api_key and api_key != "none":
                 headers["Authorization"] = f"Bearer {api_key}"
-            for k, v in provider.extra_headers.items():
+            for k, v in cur_provider.extra_headers.items():
                 headers[k] = v
 
             payload = {
-                "model": upstream_id,
+                "model": cur_upstream_id,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": max_tokens,
             }
 
-            add_log("INFO", f"开始向上游提供商 [{provider_name}] 发起 HTTP POST 请求: {base_url}/chat/completions (目标模型: {upstream_id})", "upstream")
+            dispatch_label = f"首选模型" if is_first_attempt else f"自动降级备选模型 #{attempt_idx}"
+            add_log("INFO", f"[{dispatch_label}] 开始向上游端点发起调用: {base_url}/chat/completions (模型: {cur_upstream_id})", "upstream")
             t_up_0 = time.perf_counter()
+            cur_up_ms = 0.0
+
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
+                async with httpx.AsyncClient(timeout=15.0) as client:
                     resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
-                    upstream_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
+                    cur_up_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
+                    upstream_ms += cur_up_ms
+
                     if resp.status_code == 200:
                         data = resp.json()
                         choices = data.get("choices") or []
-                        content = choices[0].get("message", {}).get("content", "") if choices else ""
-                        usage = data.get("usage") or {}
-                        add_log("INFO", f"上游响应成功: 状态码 200 OK, 网络往返及生成耗时 {upstream_ms}ms, 消耗 Token: prompt={usage.get('prompt_tokens', 0)}, completion={usage.get('completion_tokens', 0)}", "upstream")
-                        upstream_data = {
-                            "status": "ok",
-                            "http_status": 200,
-                            "latency_ms": upstream_ms,
-                            "reply_snippet": content[:300] + ("..." if len(content) > 300 else ""),
-                            "full_reply": content,
-                            "usage": usage,
-                        }
+                        msg_obj = choices[0].get("message", {}) if choices else {}
+                        content = (msg_obj.get("content") or "").strip()
+                        reasoning = (msg_obj.get("reasoning_content") or "").strip()
+                        
+                        full_display_output = ""
+                        if content and reasoning:
+                            full_display_output = f"【深度思考推导】\n{reasoning}\n\n【生成回答】\n{content}"
+                        elif content:
+                            full_display_output = content
+                        elif reasoning:
+                            full_display_output = reasoning
+                        else:
+                            full_display_output = "（生成完成，上游返回空白文本）"
 
+                        usage = data.get("usage") or {}
+                        add_log("INFO", f"上游响应成功: 状态码 200 OK, 耗时 {cur_up_ms}ms, 消耗 Token: prompt={usage.get('prompt_tokens', 0)}, completion={usage.get('completion_tokens', 0)}", "upstream")
+
+                        dispatch_entry = {
+                            "attempt": attempt_idx + 1,
+                            "model_name": cur_model_name,
+                            "provider": cur_provider_name,
+                            "upstream_id": cur_upstream_id,
+                            "status": "success",
+                            "http_status": 200,
+                            "latency_ms": cur_up_ms,
+                            "reply_snippet": full_display_output[:300] + ("..." if len(full_display_output) > 300 else ""),
+                            "output": full_display_output,
+                            "full_reply": full_display_output,
+                            "usage": usage,
+                            "is_primary": is_first_attempt,
+                        }
+                        dispatched_models.append(dispatch_entry)
+                        upstream_data = dispatch_entry
+
+                        # 触发 Laya 质量验收判定 (如果有)
                         if content and hasattr(router, "check"):
                             t_chk_0 = time.perf_counter()
                             add_log("INFO", "触发 Laya 质量验收判定 (Adequacy Verification)...", "verify")
@@ -477,31 +582,68 @@ async def test_single_prompt(req: SingleTestRequest):
                             except Exception as chk_e:
                                 add_log("WARN", f"Laya 质量判定跳过或异常: {chk_e}", "verify")
 
+                        # 成功获取回答，结束调度
+                        break
                     else:
                         err_text = resp.text[:200]
-                        add_log("ERROR", f"上游响应异常: HTTP {resp.status_code} - {err_text} (耗时 {upstream_ms}ms)", "upstream")
-                        upstream_data = {
+                        err_detail = f"HTTP {resp.status_code}: {err_text}"
+                        add_log("WARN", f"模型 [{cur_model_name}] 响应异常: {err_detail} (耗时 {cur_up_ms}ms)", "upstream")
+                        dispatched_models.append({
+                            "attempt": attempt_idx + 1,
+                            "model_name": cur_model_name,
+                            "provider": cur_provider_name,
+                            "upstream_id": cur_upstream_id,
                             "status": "error",
                             "http_status": resp.status_code,
-                            "latency_ms": upstream_ms,
-                            "error": f"HTTP {resp.status_code}: {err_text}",
-                        }
+                            "latency_ms": cur_up_ms,
+                            "output": f"上游接口异常: {err_detail}",
+                            "error": err_detail,
+                            "is_primary": is_first_attempt,
+                        })
+                        if attempt_idx + 1 < max_attempts:
+                            next_name = candidate_models_to_try[attempt_idx + 1].name
+                            add_log("INFO", f"准备触发自动降级容灾，转向调度下一个候选模型 [{next_name}]...", "upstream")
             except httpx.TimeoutException:
-                upstream_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
-                add_log("ERROR", f"上游请求超时 (超过 30s)！端点地址: {base_url} 可能未就绪或正在排队", "upstream")
-                upstream_data = {
-                    "status": "timeout",
-                    "latency_ms": upstream_ms,
-                    "error": f"上游端点 {base_url} 连接超时 (30s)",
-                }
-            except Exception as e:
-                upstream_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
-                add_log("ERROR", f"连接上游提供商发生网络异常: {str(e)}", "upstream")
-                upstream_data = {
+                cur_up_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
+                upstream_ms += cur_up_ms
+                err_detail = f"上游端点 {base_url} 连接超时 (15s)"
+                add_log("WARN", f"模型 [{cur_model_name}] 请求超时 (耗时 {cur_up_ms}ms)", "upstream")
+                dispatched_models.append({
+                    "attempt": attempt_idx + 1,
+                    "model_name": cur_model_name,
+                    "provider": cur_provider_name,
+                    "upstream_id": cur_upstream_id,
                     "status": "error",
-                    "latency_ms": upstream_ms,
-                    "error": str(e),
-                }
+                    "latency_ms": cur_up_ms,
+                    "output": f"连接超时: {err_detail}",
+                    "error": err_detail,
+                    "is_primary": is_first_attempt,
+                })
+                if attempt_idx + 1 < max_attempts:
+                    next_name = candidate_models_to_try[attempt_idx + 1].name
+                    add_log("INFO", f"准备触发自动降级容灾，转向调度下一个候选模型 [{next_name}]...", "upstream")
+            except Exception as e:
+                cur_up_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
+                upstream_ms += cur_up_ms
+                err_detail = str(e)
+                add_log("WARN", f"模型 [{cur_model_name}] 连接异常: {err_detail} (耗时 {cur_up_ms}ms)", "upstream")
+                dispatched_models.append({
+                    "attempt": attempt_idx + 1,
+                    "model_name": cur_model_name,
+                    "provider": cur_provider_name,
+                    "upstream_id": cur_upstream_id,
+                    "status": "error",
+                    "latency_ms": cur_up_ms,
+                    "output": f"网络异常: {err_detail}",
+                    "error": err_detail,
+                    "is_primary": is_first_attempt,
+                })
+                if attempt_idx + 1 < max_attempts:
+                    next_name = candidate_models_to_try[attempt_idx + 1].name
+                    add_log("INFO", f"准备触发自动降级容灾，转向调度下一个候选模型 [{next_name}]...", "upstream")
+
+        if not upstream_data and dispatched_models:
+            upstream_data = dispatched_models[-1]
 
     total_latency_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
     add_log("INFO", f"全路径测试流程执行完毕, 全程总耗时: {total_latency_ms}ms", "done")
@@ -531,6 +673,7 @@ async def test_single_prompt(req: SingleTestRequest):
             "reason": decision_reason,
             "candidates": candidates_data,
         },
+        "dispatched_models": dispatched_models,
         "upstream_response": upstream_data,
         "logs": logs,
     }

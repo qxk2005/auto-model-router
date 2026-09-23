@@ -3,11 +3,17 @@ __pycache__/
 *.pyc
 .venv/
 .env
+.env.*
+!.env.example
 *.local.yaml
+*.local.json
+config/*.local.json
 experiments/runs/
 .DS_Store
 reports/*.html
 !reports/.gitkeep
 .python-version
 scratch/
+AMRA/
+auto_model_router.egg-info/
 

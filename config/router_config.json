@@ -17,31 +17,6 @@
   },
   "models": [
     {
-      "name": "gemma-4-e4b",
-      "provider": "lm-studio",
-      "upstream_id": "google/gemma-4-e4b",
-      "free": true,
-      "prices": {
-        "input": 0,
-        "output": 0,
-        "cache_read": 0,
-        "cache_write": 0
-      },
-      "capability": {
-        "coding": 78,
-        "math": 77,
-        "general": 78,
-        "knowledge": 78,
-        "summarisation": 78,
-        "agentic": 78,
-        "tool_use": 78,
-        "reasoning": 78
-      },
-      "context_tokens": 32768,
-      "tools": true,
-      "vision": false
-    },
-    {
       "name": "deepseek-v4-flash",
       "provider": "具生涌动",
       "upstream_id": "deepseek-v4-flash",
@@ -88,6 +63,30 @@
         "tool_use": 78
       },
       "context_tokens": 128000,
+      "tools": true,
+      "vision": false
+    },
+    {
+      "name": "gemma-4-e4b-it",
+      "provider": "lm-studio",
+      "upstream_id": "gemma-4-e4b-it",
+      "free": true,
+      "prices": {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "capability": {
+        "coding": 75,
+        "math": 70,
+        "general": 80,
+        "knowledge": 75,
+        "summarisation": 80,
+        "agentic": 70,
+        "tool_use": 72
+      },
+      "context_tokens": 32768,
       "tools": true,
       "vision": false
     }

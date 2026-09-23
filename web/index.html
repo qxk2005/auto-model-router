@@ -141,12 +141,12 @@
               </div>
               <div class="test-actions-group" style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
                 <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); cursor: pointer; user-select: none;">
-                  <input type="checkbox" id="chkEndToEndTest" style="cursor: pointer;">
-                  <span>🌐 包含端到端真实生成 (向上游发送请求并返回回答)</span>
+                  <input type="checkbox" id="chkEndToEndTest" style="cursor: pointer;" checked>
+                  <span>🌐 包含端到端真实生成 (自动调用被调度的模型并显示回答)</span>
                 </label>
                 <button class="btn btn-primary" id="btnTestRoute" onclick="runSingleTest()">
                   <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                  <span>立即预测路由决策</span>
+                  <span>立即运行路由与模型生成</span>
                 </button>
               </div>
             </div>
@@ -181,7 +181,7 @@
               <div class="timeline-card" style="margin-top: 14px; background: #ffffff; border: 1px solid var(--card-border); border-radius: 10px; padding: 14px 16px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                   <span style="font-size: 13px; font-weight: 600; color: var(--text-main);">⏱️ 全路径阶段耗时拆解 (Stage Latency Breakdown)</span>
-                  <span style="font-size: 12px; color: var(--text-dim);" id="resModeBadge">模式: ⚡ 纯路由预测</span>
+                  <span style="font-size: 12px; color: var(--text-dim);" id="resModeBadge">模式: 🌐 端到端全链路生成</span>
                 </div>
                 <div class="timeline-bar-wrap" style="height: 10px; background: #f1f5f9; border-radius: 9999px; overflow: hidden; display: flex; margin-bottom: 12px;" id="timelineProgressBar">
                   <div id="barLaya" style="width: 100%; background: #0284c7;" title="Laya 提示词分析"></div>
@@ -205,13 +205,17 @@
                 </div>
               </div>
 
-              <!-- End-to-End Reply Snippet (Optional) -->
-              <div id="endToEndSnippetCard" style="display: none; margin-top: 14px; background: #ffffff; border: 1px solid var(--card-border); border-radius: 10px; padding: 14px 16px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                  <span style="font-size: 13px; font-weight: 600; color: var(--text-main);">💬 目标模型生成回复片段 (Upstream Reply)</span>
-                  <span style="font-size: 11.5px; color: var(--text-muted);" id="resTokensUsage">Tokens: --</span>
+              <!-- Dispatched Models & Generation Outputs Container -->
+              <div id="dispatchedModelsSection" style="display: none; margin-top: 14px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 13.5px; font-weight: 700; color: var(--text-main);">🎯 参与调度的后台模型及输出结果</span>
+                    <span class="badge badge-info" id="badgeDispatchedCount" style="font-size: 11px; padding: 2px 8px;">1 个模型已调度</span>
+                  </div>
+                  <span style="font-size: 12px; color: var(--text-muted);">注：未被调度选中的候选模型不予展示</span>
                 </div>
-                <pre id="resReplySnippet" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; font-family: var(--font-mono); font-size: 12.5px; color: var(--text-main); max-height: 160px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; margin: 0;">--</pre>
+                <!-- 动态列表容器：按调度顺序渲染每个被实际调度的模型卡片 -->
+                <div id="dispatchedModelsList" style="display: flex; flex-direction: column; gap: 12px;"></div>
               </div>
 
               <!-- Execution Trace Logs Details -->
