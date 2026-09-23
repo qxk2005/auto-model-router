@@ -281,6 +281,50 @@ body {
   border-color: #cbd5e1;
 }
 
+.btn-secondary.active {
+  background: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px var(--primary-glow);
+  font-weight: 700;
+}
+
+.btn-group {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+  border: 1px solid #e2e8f0;
+}
+
+.btn-group .btn {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.btn-group .btn:hover {
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--text-main);
+}
+
+.btn-group .btn.active {
+  background: #ffffff;
+  color: var(--primary);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+  font-weight: 700;
+}
+
+
 .btn-large {
   padding: 12px 24px;
   font-size: 15px;

@@ -910,8 +910,14 @@ async def get_leaderboard(
             return 0.0
         entries = sorted(entries, key=_get_sort_val, reverse=reverse)
     elif category in ("coding", "math", "hard"):
-        cat_key = f"rating_{category}"
-        entries = sorted(entries, key=lambda x: x.get(cat_key, 0.0), reverse=True)
+        cat_to_sub = {"coding": "webdev", "math": "math", "hard": "hard"}
+        sub_key = cat_to_sub.get(category, "text")
+        def _get_cat_val(item: dict) -> float:
+            sub = item.get("subsets", {}).get(sub_key)
+            if sub and "elo" in sub:
+                return float(sub["elo"])
+            return float(item.get(f"rating_{category}") or 0.0)
+        entries = sorted(entries, key=_get_cat_val, reverse=True)
     else:
         entries = sorted(entries, key=lambda x: x.get("rank_overall", 999))
 

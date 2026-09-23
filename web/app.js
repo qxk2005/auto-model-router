@@ -1675,8 +1675,34 @@ let lbSearchTimer = null;
 const DEFAULT_VISIBLE_COLUMNS = ["text", "webdev", "math", "hard", "agent", "vision", "text_factuality"];
 let lbVisibleColumns = [];
 let lbSubsetsMeta = null;
-let lbCurrentSortCol = null;
+let lbCurrentSortCol = "text";
 let lbCurrentSortOrder = "desc";
+
+const LB_CAT_TO_COL = {
+  overall: "text",
+  coding: "webdev",
+  math: "math",
+  hard: "hard",
+};
+
+const LB_COL_TO_CAT = {
+  text: "overall",
+  webdev: "coding",
+  math: "math",
+  hard: "hard",
+};
+
+function updateCategoryButtonsState(activeCat) {
+  const btns = {
+    overall: document.getElementById("btnLbCatOverall"),
+    coding: document.getElementById("btnLbCatCoding"),
+    math: document.getElementById("btnLbCatMath"),
+    hard: document.getElementById("btnLbCatHard"),
+  };
+  Object.keys(btns).forEach(k => {
+    if (btns[k]) btns[k].classList.toggle("active", k === activeCat);
+  });
+}
 
 function initLeaderboardColumns() {
   const saved = localStorage.getItem("amra_lb_visible_columns");
@@ -1851,6 +1877,11 @@ function sortLeaderboardByColumn(colKey) {
   }
 
   lbCurrentPage = 1;
+
+  // Sync category buttons state
+  const matchedCat = (lbCurrentSortOrder === "desc") ? LB_COL_TO_CAT[colKey] : null;
+  currentLbCategory = matchedCat || "";
+  updateCategoryButtonsState(matchedCat);
 
   cachedLeaderboardList.sort((a, b) => {
     let valA = 0.0;
@@ -2125,6 +2156,7 @@ async function loadLeaderboardData() {
       renderColumnPicker(json.subsets_meta);
       renderLeaderboardTableHeader();
     }
+    updateCategoryButtonsState(currentLbCategory);
 
     // Update sync tag
     const syncTag = document.getElementById("lbSyncTimeTag");
@@ -2350,17 +2382,41 @@ function renderLeaderboardTable(models) {
 
 function setLeaderboardCategory(cat) {
   currentLbCategory = cat;
-  lbCurrentSortCol = null; // 重置列头独立排序
+  const targetCol = LB_CAT_TO_COL[cat] || "text";
+
+  // If target column is not in visible columns, add it automatically
+  if (!lbVisibleColumns.includes(targetCol)) {
+    lbVisibleColumns.push(targetCol);
+    localStorage.setItem("amra_lb_visible_columns", JSON.stringify(lbVisibleColumns));
+    updateSelectedColCountBadge();
+    if (lbSubsetsMeta) {
+      renderColumnPicker(lbSubsetsMeta);
+    }
+  }
+
+  lbCurrentSortCol = targetCol;
+  lbCurrentSortOrder = "desc";
   lbCurrentPage = 1;
-  const btns = {
-    overall: document.getElementById("btnLbCatOverall"),
-    coding: document.getElementById("btnLbCatCoding"),
-    math: document.getElementById("btnLbCatMath"),
-    hard: document.getElementById("btnLbCatHard"),
-  };
-  Object.keys(btns).forEach(k => {
-    if (btns[k]) btns[k].classList.toggle("active", k === cat);
-  });
+
+  updateCategoryButtonsState(cat);
+
+  // Optimistic client-side sort
+  if (cachedLeaderboardList && cachedLeaderboardList.length > 0) {
+    cachedLeaderboardList.sort((a, b) => {
+      let valA = 0.0;
+      let valB = 0.0;
+      if (a.subsets && a.subsets[targetCol]) valA = parseFloat(a.subsets[targetCol].elo) || 0.0;
+      else if (a[targetCol] !== undefined) valA = parseFloat(a[targetCol]) || 0.0;
+
+      if (b.subsets && b.subsets[targetCol]) valB = parseFloat(b.subsets[targetCol].elo) || 0.0;
+      else if (b[targetCol] !== undefined) valB = parseFloat(b[targetCol]) || 0.0;
+
+      return valB - valA;
+    });
+    renderLeaderboardTableHeader();
+    renderLeaderboardTable(cachedLeaderboardList);
+  }
+
   loadLeaderboardData();
 }
 
