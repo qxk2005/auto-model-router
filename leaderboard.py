@@ -37,43 +37,43 @@ SUBSET_CATEGORIES: dict[str, str] = {
     "generation": "多媒体生成能力",
 }
 
-# 22 个子集完整注册表 (key, label, category, metric_type, icon)
+# 22 个子集完整注册表 (key, label, zh, en, category, metric_type, icon)
 SUBSET_REGISTRY: dict[str, dict[str, Any]] = {
     # 核心与基础学科
-    "text": {"label": "综合全能 (Text)", "cat": "core", "type": "elo", "icon": "🏆", "default": True},
-    "webdev": {"label": "代码编程 (WebDev)", "cat": "core", "type": "elo", "icon": "💻", "default": True},
-    "math": {"label": "数理推导 (Math)", "cat": "core", "type": "elo", "icon": "📐", "default": True},
-    "hard": {"label": "复杂推理 (Reasoning)", "cat": "core", "type": "elo", "icon": "🧠", "default": True},
+    "text": {"label": "综合全能 (Text)", "zh": "综合全能", "en": "Text", "cat": "core", "type": "elo", "icon": "🏆", "default": True},
+    "webdev": {"label": "代码编程 (WebDev)", "zh": "代码编程", "en": "WebDev", "cat": "core", "type": "elo", "icon": "💻", "default": True},
+    "math": {"label": "数理推导 (Math)", "zh": "数理推导", "en": "Math", "cat": "core", "type": "elo", "icon": "📐", "default": True},
+    "hard": {"label": "复杂推理 (Reasoning)", "zh": "复杂推理", "en": "Reasoning", "cat": "core", "type": "elo", "icon": "🧠", "default": True},
     
     # 智能体 Agent 与工具调用
-    "agent": {"label": "智能体综合 (Agent)", "cat": "agent", "type": "score", "icon": "🤖", "default": True},
-    "agent_tool_hallucination": {"label": "工具幻觉控制 (Tool Hallucination)", "cat": "agent", "type": "score", "icon": "🛡️", "default": False},
-    "agent_bash_recovery_steps": {"label": "Bash排错恢复 (Bash Recovery)", "cat": "agent", "type": "score", "icon": "⚡", "default": False},
-    "agent_steerability": {"label": "指令依从度 (Steerability)", "cat": "agent", "type": "score", "icon": "🧭", "default": False},
-    "agent_task_outcome_explicit": {"label": "显式任务交付 (Task Outcome)", "cat": "agent", "type": "score", "icon": "🎯", "default": False},
-    "agent_praise_complaint": {"label": "用户好评满意度 (Praise/Complaint)", "cat": "agent", "type": "score", "icon": "👍", "default": False},
+    "agent": {"label": "智能体综合 (Agent)", "zh": "智能体综合", "en": "Agent", "cat": "agent", "type": "score", "icon": "🤖", "default": True},
+    "agent_tool_hallucination": {"label": "工具幻觉控制 (Tool Hallucination)", "zh": "工具幻觉控制", "en": "Tool Hallucination", "cat": "agent", "type": "score", "icon": "🛡️", "default": False},
+    "agent_bash_recovery_steps": {"label": "Bash排错恢复 (Bash Recovery)", "zh": "Bash排错恢复", "en": "Bash Recovery", "cat": "agent", "type": "score", "icon": "⚡", "default": False},
+    "agent_steerability": {"label": "指令依从度 (Steerability)", "zh": "指令依从度", "en": "Steerability", "cat": "agent", "type": "score", "icon": "🧭", "default": False},
+    "agent_task_outcome_explicit": {"label": "显式任务交付 (Task Outcome)", "zh": "显式任务交付", "en": "Task Outcome", "cat": "agent", "type": "score", "icon": "🎯", "default": False},
+    "agent_praise_complaint": {"label": "用户好评满意度 (Praise/Complaint)", "zh": "用户满意度", "en": "Praise/Complaint", "cat": "agent", "type": "score", "icon": "👍", "default": False},
     
     # 多模态与长文档
-    "vision": {"label": "视觉多模态 (Vision)", "cat": "multimodal", "type": "elo", "icon": "👁️", "default": True},
-    "document": {"label": "长文档分析 (Document)", "cat": "multimodal", "type": "elo", "icon": "📄", "default": False},
+    "vision": {"label": "视觉多模态 (Vision)", "zh": "视觉多模态", "en": "Vision", "cat": "multimodal", "type": "elo", "icon": "👁️", "default": True},
+    "document": {"label": "长文档分析 (Document)", "zh": "长文档分析", "en": "Document", "cat": "multimodal", "type": "elo", "icon": "📄", "default": False},
     
     # 真实性与检索
-    "search": {"label": "联网搜索问答 (Search)", "cat": "factuality", "type": "elo", "icon": "🔍", "default": False},
-    "text_factuality": {"label": "文本真实性 (Text Factuality)", "cat": "factuality", "type": "elo", "icon": "✅", "default": True},
-    "search_factuality": {"label": "检索事实性 (Search Factuality)", "cat": "factuality", "type": "elo", "icon": "🔬", "default": False},
+    "search": {"label": "联网搜索问答 (Search)", "zh": "联网搜索问答", "en": "Search", "cat": "factuality", "type": "elo", "icon": "🔍", "default": False},
+    "text_factuality": {"label": "文本真实性 (Text Factuality)", "zh": "文本真实性", "en": "Text Factuality", "cat": "factuality", "type": "elo", "icon": "✅", "default": True},
+    "search_factuality": {"label": "检索事实性 (Search Factuality)", "zh": "检索事实性", "en": "Search Factuality", "cat": "factuality", "type": "elo", "icon": "🔬", "default": False},
     
     # 格式与风格控制
-    "text_style_control": {"label": "文风格式控制 (Style Control)", "cat": "style", "type": "elo", "icon": "🎨", "default": False},
-    "document_style_control": {"label": "文档排版控制 (Doc Style)", "cat": "style", "type": "elo", "icon": "📝", "default": False},
-    "search_style_control": {"label": "搜索文风控制 (Search Style)", "cat": "style", "type": "elo", "icon": "🔎", "default": False},
-    "vision_style_control": {"label": "视觉风格控制 (Vision Style)", "cat": "style", "type": "elo", "icon": "🖼️", "default": False},
+    "text_style_control": {"label": "文风格式控制 (Style Control)", "zh": "文风格式控制", "en": "Style Control", "cat": "style", "type": "elo", "icon": "🎨", "default": False},
+    "document_style_control": {"label": "文档排版控制 (Doc Style)", "zh": "文档排版控制", "en": "Doc Style", "cat": "style", "type": "elo", "icon": "📝", "default": False},
+    "search_style_control": {"label": "搜索文风控制 (Search Style)", "zh": "搜索文风控制", "en": "Search Style", "cat": "style", "type": "elo", "icon": "🔎", "default": False},
+    "vision_style_control": {"label": "视觉风格控制 (Vision Style)", "zh": "视觉风格控制", "en": "Vision Style", "cat": "style", "type": "elo", "icon": "🖼️", "default": False},
     
     # 多媒体生成
-    "image_edit": {"label": "图像编辑 (Image Edit)", "cat": "generation", "type": "elo", "icon": "✂️", "default": False},
-    "image_to_video": {"label": "图生视频 (Img to Video)", "cat": "generation", "type": "elo", "icon": "🎬", "default": False},
-    "text_to_image": {"label": "文生图 (Text to Image)", "cat": "generation", "type": "elo", "icon": "🖌️", "default": False},
-    "text_to_video": {"label": "文生视频 (Text to Video)", "cat": "generation", "type": "elo", "icon": "🎥", "default": False},
-    "video_edit": {"label": "视频编辑 (Video Edit)", "cat": "generation", "type": "elo", "icon": "🎞️", "default": False},
+    "image_edit": {"label": "图像编辑 (Image Edit)", "zh": "图像编辑", "en": "Image Edit", "cat": "generation", "type": "elo", "icon": "✂️", "default": False},
+    "image_to_video": {"label": "图生视频 (Img to Video)", "zh": "图生视频", "en": "Img to Video", "cat": "generation", "type": "elo", "icon": "🎬", "default": False},
+    "text_to_image": {"label": "文生图 (Text to Image)", "zh": "文生图", "en": "Text to Image", "cat": "generation", "type": "elo", "icon": "🖌️", "default": False},
+    "text_to_video": {"label": "文生视频 (Text to Video)", "zh": "文生视频", "en": "Text to Video", "cat": "generation", "type": "elo", "icon": "🎥", "default": False},
+    "video_edit": {"label": "视频编辑 (Video Edit)", "zh": "视频编辑", "en": "Video Edit", "cat": "generation", "type": "elo", "icon": "🎞️", "default": False},
 }
 
 
@@ -200,6 +200,8 @@ class LeaderboardManager:
                     items.append({
                         "key": sub_key,
                         "label": sub_val["label"],
+                        "zh": sub_val.get("zh", sub_val["label"]),
+                        "en": sub_val.get("en", sub_key),
                         "icon": sub_val["icon"],
                         "type": sub_val["type"],
                         "default": sub_val.get("default", False),

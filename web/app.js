@@ -1712,6 +1712,18 @@ function toggleColumnPickerDropdown(event) {
   dd.style.display = isHidden ? "flex" : "none";
 }
 
+function getSubsetDisplayName(sub) {
+  if (sub && sub.zh && sub.en) {
+    return { zh: sub.zh, en: sub.en };
+  }
+  const label = (sub && sub.label) ? sub.label : (sub && sub.key ? sub.key : "");
+  const match = label.match(/^(.*?)\s*\((.*?)\)$/);
+  if (match) {
+    return { zh: match[1].trim(), en: match[2].trim() };
+  }
+  return { zh: label, en: (sub && sub.key) ? sub.key : "" };
+}
+
 function renderColumnPicker(meta) {
   if (!meta || !meta.categories) return;
   lbSubsetsMeta = meta;
@@ -1725,19 +1737,33 @@ function renderColumnPicker(meta) {
 
     const titleDiv = document.createElement("div");
     titleDiv.className = "col-group-title";
-    titleDiv.innerHTML = `<span>${cat.name}</span><span style="font-size:10px; color:var(--text-muted); font-weight:400;">(${cat.subsets.length})</span>`;
+    titleDiv.innerHTML = `
+      <div class="col-group-title-left">
+        <span>${cat.name}</span>
+        <span style="font-size:10px; color:var(--text-muted); font-weight:400;">(${cat.subsets.length})</span>
+      </div>
+      <div class="col-group-actions">
+        <button type="button" class="col-group-btn" onclick="toggleCategoryColumns('${cat.id}', true)">全选</button>
+        <span style="color: #cbd5e1; font-size: 10px;">|</span>
+        <button type="button" class="col-group-btn clear" onclick="toggleCategoryColumns('${cat.id}', false)">清空</button>
+      </div>
+    `;
     groupDiv.appendChild(titleDiv);
 
     const itemsDiv = document.createElement("div");
     itemsDiv.className = "col-picker-items";
 
     cat.subsets.forEach(sub => {
+      const names = getSubsetDisplayName(sub);
       const label = document.createElement("label");
       label.className = "col-picker-item";
       const isChecked = lbVisibleColumns.includes(sub.key);
       label.innerHTML = `
         <input type="checkbox" value="${sub.key}" ${isChecked ? "checked" : ""} onchange="onColumnCheckboxChange('${sub.key}', this.checked)">
-        <span title="${sub.label}">${sub.icon || "📊"} ${sub.label}</span>
+        <div class="col-picker-text">
+          <span class="col-picker-title" title="${sub.label || names.zh}">${sub.icon || "📊"} ${names.zh}</span>
+          <span class="col-picker-sub" title="${names.en}">${names.en}</span>
+        </div>
       `;
       itemsDiv.appendChild(label);
     });
@@ -1745,6 +1771,43 @@ function renderColumnPicker(meta) {
     groupDiv.appendChild(itemsDiv);
     container.appendChild(groupDiv);
   });
+}
+
+function toggleCategoryColumns(catId, enableAll) {
+  if (!lbSubsetsMeta || !lbSubsetsMeta.categories) return;
+  const cat = lbSubsetsMeta.categories.find(c => c.id === catId);
+  if (!cat || !cat.subsets) return;
+
+  const catKeys = cat.subsets.map(s => s.key);
+
+  if (enableAll) {
+    catKeys.forEach(k => {
+      if (!lbVisibleColumns.includes(k)) {
+        lbVisibleColumns.push(k);
+      }
+    });
+  } else {
+    // If clearing, ensure we still keep at least 1 column globally
+    const remaining = lbVisibleColumns.filter(k => !catKeys.includes(k));
+    if (remaining.length === 0) {
+      showToast("全局至少需保留一个显示列，不能全部清空", "warning");
+      lbVisibleColumns = [catKeys[0] || "text"];
+    } else {
+      lbVisibleColumns = remaining;
+    }
+  }
+
+  localStorage.setItem("amra_lb_visible_columns", JSON.stringify(lbVisibleColumns));
+  updateSelectedColCountBadge();
+
+  // Sync checkboxes in DOM
+  catKeys.forEach(k => {
+    const chk = document.querySelector(`.col-picker-item input[value="${k}"]`);
+    if (chk) chk.checked = lbVisibleColumns.includes(k);
+  });
+
+  renderLeaderboardTableHeader();
+  renderLeaderboardTable(cachedLeaderboardList);
 }
 
 function onColumnCheckboxChange(colKey, isChecked) {
@@ -1776,7 +1839,7 @@ function resetDefaultColumns() {
   }
   renderLeaderboardTableHeader();
   renderLeaderboardTable(cachedLeaderboardList);
-  showToast("已恢复默认显示列 (6项核心维度)", "info");
+  showToast("已恢复默认显示列 (7项核心维度)", "info");
 }
 
 function sortLeaderboardByColumn(colKey) {
@@ -1820,27 +1883,36 @@ function renderLeaderboardTableHeader() {
 
   let colsHtml = `
     <tr>
-      <th style="width: 60px; text-align: center;">排名</th>
-      <th style="min-width: 170px;">模型名称 (Model)</th>
-      <th style="min-width: 100px;">研发机构 (Org)</th>
+      <th style="width: 55px; text-align: center;">排名</th>
+      <th style="min-width: 165px;">模型名称 (Model)</th>
+      <th style="min-width: 95px;">研发机构 (Org)</th>
   `;
 
   lbVisibleColumns.forEach(colKey => {
     const meta = reg[colKey] || { label: colKey, icon: "📊" };
+    const names = getSubsetDisplayName(meta);
     const isSorted = (lbCurrentSortCol === colKey);
     const arrow = isSorted ? (lbCurrentSortOrder === "asc" ? "▲" : "▼") : "↕";
     colsHtml += `
-      <th class="sortable-th ${isSorted ? "sorted" : ""}" style="text-align: right; min-width: 110px;" onclick="sortLeaderboardByColumn('${colKey}')" title="点击按此列${isSorted && lbCurrentSortOrder === 'desc' ? '升序' : '降序'}排序">
-        <span>${meta.icon || ''} ${meta.label}</span>
-        <span class="sort-indicator">${arrow}</span>
+      <th class="sortable-th ${isSorted ? "sorted" : ""}" style="text-align: right; min-width: 95px;" onclick="sortLeaderboardByColumn('${colKey}')" title="点击按此列${isSorted && lbCurrentSortOrder === 'desc' ? '升序' : '降序'}排序">
+        <div class="th-two-line">
+          <div class="th-main-title">
+            <span>${meta.icon || ''}</span>
+            <span>${names.zh}</span>
+          </div>
+          <div class="th-sub-title">
+            <span>${names.en}</span>
+            <span class="sort-indicator">${arrow}</span>
+          </div>
+        </div>
       </th>
     `;
   });
 
   colsHtml += `
-      <th style="min-width: 95px;">开源许可</th>
-      <th style="min-width: 80px;">路由状态</th>
-      <th style="min-width: 85px;">操作</th>
+      <th style="min-width: 90px;">开源许可</th>
+      <th style="min-width: 75px;">路由状态</th>
+      <th style="min-width: 80px;">操作</th>
     </tr>
   `;
 
