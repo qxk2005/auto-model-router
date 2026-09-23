@@ -246,7 +246,7 @@ async def chat_completions(request: Request) -> Any:
         payload = {**body, "model": result.model.upstream_id}
         started = time.perf_counter()
         try:
-            resp = await client().post(f"{provider.base_url}/chat/completions",
+            resp = await client().post(f"{provider.resolved_base_url}/chat/completions",
                                        headers=provider_headers(provider), json=payload)
             data = resp.json() if resp.content else {}
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
@@ -401,7 +401,7 @@ async def _stream_upstream(body: dict, result: RouteResult, state: dict):
     finish_reason: str | None = None
     text: list[str] = []
     started = time.perf_counter()
-    async with client().stream("POST", f"{provider.base_url}/chat/completions",
+    async with client().stream("POST", f"{provider.resolved_base_url}/chat/completions",
                                headers=provider_headers(provider), json=payload) as resp:
         if resp.status_code != 200:
             await resp.aread()
@@ -607,7 +607,7 @@ async def proxy_openai_as_anthropic(body: dict, result: RouteResult) -> Any:
                                  media_type="text/event-stream", headers=headers)
 
     started = time.perf_counter()
-    resp = await client().post(f"{provider.base_url}/chat/completions",
+    resp = await client().post(f"{provider.resolved_base_url}/chat/completions",
                                headers=provider_headers(provider), json=payload)
     latency_ms = (time.perf_counter() - started) * 1000
     if resp.status_code != 200:
@@ -643,7 +643,7 @@ async def _anthropic_stream(payload: dict, provider: Provider, result: RouteResu
     outcome = StreamOutcome()
     started = time.perf_counter()
     try:
-        async with client().stream("POST", f"{provider.base_url}/chat/completions",
+        async with client().stream("POST", f"{provider.resolved_base_url}/chat/completions",
                                    headers=provider_headers(provider), json=payload) as resp:
             if resp.status_code != 200:
                 raw = (await resp.aread()).decode(errors="replace")[:600]
