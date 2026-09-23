@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Auto-LLM-Router 控制台 | 智能模型路由器 (Laya)</title>
-  <link rel="stylesheet" href="/web/style.css?v=20260923_category_sync1">
+  <link rel="stylesheet" href="/web/style.css?v=20260923_vram_v2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -55,8 +55,10 @@
           <span id="hardwareName">硬件加速</span>
         </div>
         <div class="sidebar-meta" id="sidebarMeta">
-          <span>内存: -- MB</span>
-          <span>运行: --s</span>
+          <div class="meta-row">
+            <span>内存: -- MB</span>
+            <span>运行: --s</span>
+          </div>
         </div>
       </div>
     </aside>
@@ -67,7 +69,7 @@
       <header class="topbar">
         <div class="page-title">
           <h1 id="pageTitleText">网关状态与实时监控</h1>
-          <p id="pageSubtitleText">监测 Apple Silicon 本地 Laya 决策引擎与网关实时运行指标</p>
+          <p id="pageSubtitleText">监测硬件加速本地 Laya 决策引擎与网关实时运行指标</p>
         </div>
         <div class="topbar-actions">
           <div class="endpoint-pill">
@@ -988,6 +990,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=20260923_cuda_v1"></script>
+  <script src="/web/app.js?v=20260923_vram_v2"></script>
 </body>
 </html>
