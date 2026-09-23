@@ -32,8 +32,8 @@ from auto_router.config import for_http, load_config, save_config
 from auto_router.jev import LocalLayaClassifier
 from auto_router.router import Router
 from evaluator import BenchmarkEvaluator, BenchmarkSummary
-from open_llm_leaderboard import CACHE_FILE, leaderboard_mgr
 from reporter import ReportGenerator
+from leaderboard import leaderboard_mgr
 
 # Ensure logging is configured
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -711,51 +711,127 @@ async def batch_delete_reports(payload: BatchDeleteReportsRequest):
 
 
 # ---------------------------------------------------------------------------
-# Open LLM Leaderboard Benchmark & Capability APIs
+# LMSYS Arena Leaderboard & Model Capability Reference APIs
 # ---------------------------------------------------------------------------
 @app.get("/api/leaderboard")
 async def get_leaderboard(
-    q: str = "",
-    sort_by: str = "average",
-    order: str = "desc",
-    limit: int = 50,
-    offset: int = 0,
-    architecture: str = "",
+    search: str | None = None,
+    category: str | None = None,
+    open_source_only: bool = False,
+    candidate_only: bool = False,
 ):
-    """Query Open LLM Leaderboard models with search, sorting and pagination."""
-    return leaderboard_mgr.query(
-        q=q,
-        sort_by=sort_by,
-        order=order,
-        limit=limit,
-        offset=offset,
-        architecture=architecture,
-    )
+    """Fetch LMSYS Chatbot Arena leaderboard entries, tagged with candidate router models."""
+    cfg = get_current_raw_config()
+    configured_models = cfg.get("models", [])
 
+    all_data = leaderboard_mgr.get_all()
+    entries = all_data.get("models", [])
 
-@app.post("/api/leaderboard/sync")
-async def sync_leaderboard(max_pages: int = 15):
-    """Sync latest benchmark records from Hugging Face dataset server."""
-    result = await leaderboard_mgr.sync_from_huggingface(max_pages=max_pages)
-    return result
+    # Filter by search
+    if search and search.strip():
+        q = search.strip().lower()
+        entries = [
+            m for m in entries
+            if q in m.get("model_name", "").lower()
+            or q in m.get("display_name", "").lower()
+            or q in m.get("organization", "").lower()
+        ]
+
+    # Filter by open source
+    if open_source_only:
+        entries = [
+            m for m in entries
+            if str(m.get("license", "")).lower() not in ("proprietary", "closed", "commercial")
+        ]
+
+    # Sort by category rating if requested
+    if category in ("coding", "math", "hard"):
+        cat_key = f"rating_{category}"
+        entries = sorted(entries, key=lambda x: x.get(cat_key, 0.0), reverse=True)
+    else:
+        entries = sorted(entries, key=lambda x: x.get("rank_overall", 999))
+
+    results = []
+    for item in entries:
+        m_copy = dict(item)
+        matched_candidates = []
+        for c in configured_models:
+            c_name = str(c.get("name", "")).lower()
+            c_upstream = str(c.get("upstream_id", "")).lower()
+            m_name = str(item.get("model_name", "")).lower()
+            d_name = str(item.get("display_name", "")).lower()
+
+            if (c_upstream and (c_upstream in m_name or m_name in c_upstream or c_upstream in d_name)) or \
+               (c_name and (c_name in m_name or m_name in c_name or c_name in d_name)):
+                matched_candidates.append(c)
+
+        m_copy["is_candidate"] = len(matched_candidates) > 0
+        m_copy["matched_candidate"] = matched_candidates[0] if matched_candidates else None
+
+        if candidate_only and not m_copy["is_candidate"]:
+            continue
+        results.append(m_copy)
+
+    # Cross-comparison data for all currently configured candidate models
+    candidate_comparison_list = []
+    for c in configured_models:
+        c_name = c.get("name", "")
+        c_up = c.get("upstream_id", "")
+        matches = leaderboard_mgr.match_model(c_up or c_name)
+        candidate_comparison_list.append({
+            "configured_model": c,
+            "matched_leaderboard": matches[0] if matches else None,
+        })
+
+    return {
+        "status": "ok",
+        "total": len(results),
+        "last_updated": all_data.get("last_updated", ""),
+        "source": all_data.get("source", ""),
+        "data": results,
+        "candidate_comparison": candidate_comparison_list,
+    }
 
 
 @app.get("/api/leaderboard/match")
-async def match_leaderboard_model(model_id: str = "", top_k: int = 5):
-    """Fuzzy match a model ID / name to the best benchmark model and compute Laya capabilities."""
-    return leaderboard_mgr.match_model(model_id_or_name=model_id, top_k=top_k)
+async def match_leaderboard_model(query: str):
+    """Fuzzy match a model ID/Name against the authoritative LMSYS Chatbot Arena leaderboard."""
+    if not query:
+        raise HTTPException(status_code=400, detail="query 参数不能为空")
+
+    matches = leaderboard_mgr.match_model(query)
+    if not matches:
+        return {"status": "not_found", "query": query, "model": None, "candidates": []}
+
+    best = matches[0]
+    prof = best.get("normalized_profile", {})
+    return {
+        "status": "ok",
+        "query": query,
+        "matched": True,
+        "model": best,
+        "candidates": matches[:6],
+        "normalized_capabilities": {
+            "coding": prof.get("coding", 0.85),
+            "math": prof.get("math", 0.85),
+            "reasoning": prof.get("reasoning", 0.85),
+            "general": prof.get("general", 0.85),
+        },
+    }
 
 
-@app.api_route("/api/leaderboard/download", methods=["GET", "HEAD"])
-async def download_leaderboard_cache():
-    """Download local full JSON cache of Open LLM Leaderboard."""
-    if not CACHE_FILE.exists():
-        raise HTTPException(status_code=404, detail="本地排行榜缓存文件不存在")
-    return FileResponse(
-        path=str(CACHE_FILE),
-        filename="open_llm_leaderboard.json",
-        media_type="application/json",
-    )
+@app.post("/api/leaderboard/sync")
+async def sync_leaderboard_data():
+    """Trigger an online sync from HuggingFace lmarena-ai/leaderboard-dataset."""
+    try:
+        res = await leaderboard_mgr.sync_from_huggingface()
+        return res
+    except Exception as exc:
+        return {
+            "status": "error",
+            "message": f"同步失败: {str(exc)}",
+            "last_updated": leaderboard_mgr._last_updated,
+        }
 
 
 # ---------------------------------------------------------------------------
