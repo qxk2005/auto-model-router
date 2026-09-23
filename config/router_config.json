@@ -28,14 +28,14 @@
         "cache_write": 0
       },
       "capability": {
-        "coding": 73,
-        "math": 73,
-        "general": 74,
-        "knowledge": 74,
-        "summarisation": 74,
-        "agentic": 74,
-        "tool_use": 73,
-        "reasoning": 74
+        "coding": 78,
+        "math": 77,
+        "general": 78,
+        "knowledge": 78,
+        "summarisation": 78,
+        "agentic": 78,
+        "tool_use": 78,
+        "reasoning": 78
       },
       "context_tokens": 32768,
       "tools": true,
@@ -53,14 +53,14 @@
         "cache_write": 0.2
       },
       "capability": {
-        "coding": 72,
-        "math": 72,
-        "reasoning": 73,
-        "general": 73,
-        "knowledge": 73,
-        "summarisation": 73,
-        "agentic": 73,
-        "tool_use": 72
+        "coding": 77,
+        "math": 76,
+        "reasoning": 77,
+        "general": 77,
+        "knowledge": 77,
+        "summarisation": 77,
+        "agentic": 77,
+        "tool_use": 77
       },
       "context_tokens": 65536,
       "tools": true,
@@ -78,14 +78,14 @@
         "cache_write": 1
       },
       "capability": {
-        "coding": 75,
-        "math": 74,
-        "reasoning": 75,
-        "general": 76,
-        "knowledge": 76,
-        "summarisation": 76,
-        "agentic": 75,
-        "tool_use": 75
+        "coding": 78,
+        "math": 77,
+        "reasoning": 78,
+        "general": 78,
+        "knowledge": 78,
+        "summarisation": 78,
+        "agentic": 78,
+        "tool_use": 78
       },
       "context_tokens": 128000,
       "tools": true,
