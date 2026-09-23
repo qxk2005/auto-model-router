@@ -1,0 +1,311 @@
+{
+  "source": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset",
+  "last_updated": "2026-09-23 16:33:38",
+  "total_models": 16,
+  "models": [
+    {
+      "model_name": "deepseek-r1",
+      "display_name": "DeepSeek R1 (Reasoning)",
+      "organization": "DeepSeek",
+      "license": "MIT",
+      "rating_overall": 1362.0,
+      "rank_overall": 1,
+      "rating_coding": 1385.0,
+      "rating_hard": 1410.0,
+      "rating_math": 1420.0,
+      "vote_count": 28540,
+      "normalized_profile": {
+        "coding": 0.98,
+        "math": 0.99,
+        "reasoning": 0.99,
+        "general": 0.95
+      },
+      "publish_date": "2026-09-18"
+    },
+    {
+      "model_name": "claude-3-5-sonnet",
+      "display_name": "Claude 3.5 Sonnet",
+      "organization": "Anthropic",
+      "license": "Proprietary",
+      "rating_overall": 1358.0,
+      "rank_overall": 2,
+      "rating_coding": 1390.0,
+      "rating_hard": 1395.0,
+      "rating_math": 1340.0,
+      "vote_count": 62450,
+      "normalized_profile": {
+        "coding": 0.99,
+        "math": 0.94,
+        "reasoning": 0.97,
+        "general": 0.98
+      },
+      "publish_date": "2026-09-15"
+    },
+    {
+      "model_name": "o1-preview",
+      "display_name": "OpenAI o1 (Full Reasoning)",
+      "organization": "OpenAI",
+      "license": "Proprietary",
+      "rating_overall": 1355.0,
+      "rank_overall": 3,
+      "rating_coding": 1375.0,
+      "rating_hard": 1405.0,
+      "rating_math": 1415.0,
+      "vote_count": 34120,
+      "normalized_profile": {
+        "coding": 0.97,
+        "math": 0.99,
+        "reasoning": 0.99,
+        "general": 0.94
+      },
+      "publish_date": "2026-09-12"
+    },
+    {
+      "model_name": "gpt-4o",
+      "display_name": "GPT-4o (Omni)",
+      "organization": "OpenAI",
+      "license": "Proprietary",
+      "rating_overall": 1340.0,
+      "rank_overall": 4,
+      "rating_coding": 1345.0,
+      "rating_hard": 1360.0,
+      "rating_math": 1330.0,
+      "vote_count": 89200,
+      "normalized_profile": {
+        "coding": 0.95,
+        "math": 0.93,
+        "reasoning": 0.95,
+        "general": 0.97
+      },
+      "publish_date": "2026-09-10"
+    },
+    {
+      "model_name": "deepseek-v3",
+      "display_name": "DeepSeek V3 (671B MoE)",
+      "organization": "DeepSeek",
+      "license": "MIT",
+      "rating_overall": 1335.0,
+      "rank_overall": 5,
+      "rating_coding": 1350.0,
+      "rating_hard": 1352.0,
+      "rating_math": 1335.0,
+      "vote_count": 41200,
+      "normalized_profile": {
+        "coding": 0.95,
+        "math": 0.94,
+        "reasoning": 0.94,
+        "general": 0.95
+      },
+      "publish_date": "2026-09-08"
+    },
+    {
+      "model_name": "qwen-2.5-72b-instruct",
+      "display_name": "Qwen 2.5 72B Instruct",
+      "organization": "Alibaba",
+      "license": "Apache-2.0",
+      "rating_overall": 1320.0,
+      "rank_overall": 6,
+      "rating_coding": 1335.0,
+      "rating_hard": 1330.0,
+      "rating_math": 1340.0,
+      "vote_count": 27800,
+      "normalized_profile": {
+        "coding": 0.94,
+        "math": 0.94,
+        "reasoning": 0.93,
+        "general": 0.93
+      },
+      "publish_date": "2026-09-05"
+    },
+    {
+      "model_name": "claude-3-opus",
+      "display_name": "Claude 3 Opus",
+      "organization": "Anthropic",
+      "license": "Proprietary",
+      "rating_overall": 1315.0,
+      "rank_overall": 7,
+      "rating_coding": 1310.0,
+      "rating_hard": 1335.0,
+      "rating_math": 1280.0,
+      "vote_count": 48100,
+      "normalized_profile": {
+        "coding": 0.92,
+        "math": 0.89,
+        "reasoning": 0.94,
+        "general": 0.96
+      },
+      "publish_date": "2026-08-30"
+    },
+    {
+      "model_name": "llama-3.3-70b-instruct",
+      "display_name": "Llama 3.3 70B Instruct",
+      "organization": "Meta",
+      "license": "Llama-3.3",
+      "rating_overall": 1310.0,
+      "rank_overall": 8,
+      "rating_coding": 1315.0,
+      "rating_hard": 1320.0,
+      "rating_math": 1300.0,
+      "vote_count": 31500,
+      "normalized_profile": {
+        "coding": 0.92,
+        "math": 0.91,
+        "reasoning": 0.92,
+        "general": 0.93
+      },
+      "publish_date": "2026-08-25"
+    },
+    {
+      "model_name": "gemini-1.5-pro",
+      "display_name": "Gemini 1.5 Pro (Google)",
+      "organization": "Google",
+      "license": "Proprietary",
+      "rating_overall": 1305.0,
+      "rank_overall": 9,
+      "rating_coding": 1295.0,
+      "rating_hard": 1310.0,
+      "rating_math": 1315.0,
+      "vote_count": 45300,
+      "normalized_profile": {
+        "coding": 0.91,
+        "math": 0.92,
+        "reasoning": 0.92,
+        "general": 0.94
+      },
+      "publish_date": "2026-08-20"
+    },
+    {
+      "model_name": "gpt-4o-mini",
+      "display_name": "GPT-4o mini",
+      "organization": "OpenAI",
+      "license": "Proprietary",
+      "rating_overall": 1275.0,
+      "rank_overall": 10,
+      "rating_coding": 1260.0,
+      "rating_hard": 1270.0,
+      "rating_math": 1280.0,
+      "vote_count": 68400,
+      "normalized_profile": {
+        "coding": 0.88,
+        "math": 0.9,
+        "reasoning": 0.88,
+        "general": 0.91
+      },
+      "publish_date": "2026-08-15"
+    },
+    {
+      "model_name": "qwen-2.5-coder-32b-instruct",
+      "display_name": "Qwen 2.5 Coder 32B Instruct",
+      "organization": "Alibaba",
+      "license": "Apache-2.0",
+      "rating_overall": 1270.0,
+      "rank_overall": 11,
+      "rating_coding": 1350.0,
+      "rating_hard": 1290.0,
+      "rating_math": 1310.0,
+      "vote_count": 18900,
+      "normalized_profile": {
+        "coding": 0.96,
+        "math": 0.92,
+        "reasoning": 0.9,
+        "general": 0.88
+      },
+      "publish_date": "2026-08-10"
+    },
+    {
+      "model_name": "glm-4-plus",
+      "display_name": "GLM-4 Plus (Zhipu AI)",
+      "organization": "Zhipu AI",
+      "license": "Proprietary",
+      "rating_overall": 1265.0,
+      "rank_overall": 12,
+      "rating_coding": 1260.0,
+      "rating_hard": 1265.0,
+      "rating_math": 1270.0,
+      "vote_count": 15600,
+      "normalized_profile": {
+        "coding": 0.88,
+        "math": 0.89,
+        "reasoning": 0.88,
+        "general": 0.9
+      },
+      "publish_date": "2026-08-05"
+    },
+    {
+      "model_name": "gemma-2-27b-it",
+      "display_name": "Gemma 2 27B Instruct",
+      "organization": "Google",
+      "license": "Gemma",
+      "rating_overall": 1250.0,
+      "rank_overall": 13,
+      "rating_coding": 1235.0,
+      "rating_hard": 1245.0,
+      "rating_math": 1240.0,
+      "vote_count": 24200,
+      "normalized_profile": {
+        "coding": 0.86,
+        "math": 0.87,
+        "reasoning": 0.86,
+        "general": 0.89
+      },
+      "publish_date": "2026-08-01"
+    },
+    {
+      "model_name": "llama-3.1-8b-instruct",
+      "display_name": "Llama 3.1 8B Instruct",
+      "organization": "Meta",
+      "license": "Llama-3.1",
+      "rating_overall": 1205.0,
+      "rank_overall": 14,
+      "rating_coding": 1180.0,
+      "rating_hard": 1190.0,
+      "rating_math": 1185.0,
+      "vote_count": 38900,
+      "normalized_profile": {
+        "coding": 0.82,
+        "math": 0.83,
+        "reasoning": 0.82,
+        "general": 0.85
+      },
+      "publish_date": "2026-07-25"
+    },
+    {
+      "model_name": "gemma-2-9b-it",
+      "display_name": "Gemma 2 9B Instruct",
+      "organization": "Google",
+      "license": "Gemma",
+      "rating_overall": 1195.0,
+      "rank_overall": 15,
+      "rating_coding": 1170.0,
+      "rating_hard": 1180.0,
+      "rating_math": 1175.0,
+      "vote_count": 29800,
+      "normalized_profile": {
+        "coding": 0.81,
+        "math": 0.82,
+        "reasoning": 0.81,
+        "general": 0.84
+      },
+      "publish_date": "2026-07-20"
+    },
+    {
+      "model_name": "qwen-2.5-7b-instruct",
+      "display_name": "Qwen 2.5 7B Instruct",
+      "organization": "Alibaba",
+      "license": "Apache-2.0",
+      "rating_overall": 1190.0,
+      "rank_overall": 16,
+      "rating_coding": 1185.0,
+      "rating_hard": 1170.0,
+      "rating_math": 1180.0,
+      "vote_count": 21500,
+      "normalized_profile": {
+        "coding": 0.82,
+        "math": 0.82,
+        "reasoning": 0.81,
+        "general": 0.83
+      },
+      "publish_date": "2026-07-15"
+    }
+  ]
+}
