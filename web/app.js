@@ -1081,7 +1081,13 @@ async function fetchModelsForCurrentModal() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_url: url, api_key: key }),
     });
-    const data = await res.json();
+    let data;
+    try {
+      data = await res.json();
+    } catch (_) {
+      const errText = await res.text().catch(() => "");
+      throw new Error(`服务返回非 JSON 响应 (HTTP ${res.status}): ${errText || '未知错误'}`);
+    }
 
     if (data.status === "ok") {
       currentModalModels = data.models || [];
@@ -1283,10 +1289,19 @@ async function refreshQuickSyncModels() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_url: p.base_url, api_key: p.api_key }),
     });
-    const data = await res.json();
+    let data;
+    try {
+      data = await res.json();
+    } catch (_) {
+      const errText = await res.text().catch(() => "");
+      throw new Error(`服务返回非 JSON 响应 (HTTP ${res.status}): ${errText || '未知错误'}`);
+    }
     if (data.status === "ok") {
       quickSyncModels = data.models || [];
-      document.getElementById("quickSyncProvMeta").textContent = `端点: ${p.base_url} (共检索到 ${quickSyncModels.length} 个模型)`;
+      const displayUrl = data.resolved_base_url && data.resolved_base_url !== p.base_url 
+        ? `${p.base_url} (${data.resolved_base_url})` 
+        : p.base_url;
+      document.getElementById("quickSyncProvMeta").textContent = `端点: ${displayUrl} (共检索到 ${quickSyncModels.length} 个模型)`;
 
       // Identify already configured models
       const configuredUpstream = (currentConfig.models || [])
