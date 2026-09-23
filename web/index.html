@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Auto-LLM-Router 控制台 | Laya on Apple M4 Max</title>
-  <link rel="stylesheet" href="/web/style.css?v=20260923_scroll_fix">
+  <link rel="stylesheet" href="/web/style.css?v=20260923_pagination">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -576,6 +576,41 @@
                 </tbody>
               </table>
             </div>
+
+            <!-- Leaderboard Pagination Bar -->
+            <div class="pagination-bar" id="leaderboardPaginationBar">
+              <div class="pagination-left">
+                <div class="pagination-size-select-wrap">
+                  <span class="pagination-label">每页显示:</span>
+                  <select id="lbPageSizeSelect" class="form-control form-control-sm pagination-select" onchange="onLeaderboardPageSizeChange(this.value)">
+                    <option value="20">20 条/页</option>
+                    <option value="50">50 条/页</option>
+                    <option value="100">100 条/页</option>
+                    <option value="200">200 条/页</option>
+                  </select>
+                </div>
+                <div class="pagination-stats" id="lbPaginationStats">
+                  共 <strong id="lbTotalCount">0</strong> 款模型，第 <strong id="lbCurrentPage">1</strong> / <strong id="lbTotalPages">1</strong> 页
+                </div>
+              </div>
+              <div class="pagination-right">
+                <div class="pagination-pager" id="lbPagerGroup">
+                  <button class="btn btn-sm btn-secondary pagination-btn" id="btnLbFirstPage" onclick="changeLeaderboardPage(1)" title="第一页">«</button>
+                  <button class="btn btn-sm btn-secondary pagination-btn" id="btnLbPrevPage" onclick="prevLeaderboardPage()" title="上一页">‹</button>
+                  <div class="pagination-numbers" id="lbPaginationNumbers">
+                    <!-- Dynamic page numbers -->
+                  </div>
+                  <button class="btn btn-sm btn-secondary pagination-btn" id="btnLbNextPage" onclick="nextLeaderboardPage()" title="下一页">›</button>
+                  <button class="btn btn-sm btn-secondary pagination-btn" id="btnLbLastPage" onclick="lastLeaderboardPage()" title="最后一页">»</button>
+                </div>
+                <div class="pagination-jump">
+                  <span>跳至</span>
+                  <input type="number" id="lbJumpPageInput" class="form-control form-control-sm pagination-jump-input" min="1" onkeydown="if(event.key==='Enter') jumpLeaderboardPage()">
+                  <span>页</span>
+                  <button class="btn btn-sm btn-secondary pagination-jump-btn" onclick="jumpLeaderboardPage()">确定</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -941,6 +976,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=20260923_scroll_fix"></script>
+  <script src="/web/app.js?v=20260923_pagination"></script>
 </body>
 </html>
