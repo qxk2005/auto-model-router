@@ -29,8 +29,16 @@ def test_subsets_meta_structure():
     assert len(meta["registry"]) >= 22
     for key, item in meta["registry"].items():
         assert "label" in item
+        assert "zh" in item
+        assert "en" in item
         assert "cat" in item
         assert "type" in item
+
+    # Check categories items have zh and en
+    for cat in meta["categories"]:
+        for sub in cat["subsets"]:
+            assert "zh" in sub
+            assert "en" in sub
 
 def test_ensure_subsets_structure():
     mgr = LeaderboardManager()
