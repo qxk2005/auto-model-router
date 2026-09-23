@@ -23,7 +23,7 @@ import httpx
 import torch
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -482,6 +482,7 @@ class SingleTestRequest(BaseModel):
     prompt: str
     mode: str = "predict_only"  # "predict_only" | "end_to_end"
     max_tokens: int = 128
+    stream: bool = False
 
 
 @app.post("/api/router/test-single")
@@ -494,6 +495,374 @@ async def test_single_prompt(req: SingleTestRequest):
     mode = req.mode or "end_to_end"
     max_tokens = max(1, min(req.max_tokens or 1024, 4096))
 
+    # --- 🌊 实时流式打字输出分支 (Stream Mode) ---
+    if req.stream and mode == "end_to_end":
+        async def stream_generator():
+            t_start = time.perf_counter()
+            logs: list[dict] = []
+
+            def add_log(level: str, msg: str, stage: str = "general"):
+                ts = time.strftime("%H:%M:%S") + f".{int((time.time() % 1) * 1000):03d}"
+                entry = {
+                    "timestamp": ts,
+                    "level": level,
+                    "stage": stage,
+                    "message": msg,
+                }
+                logs.append(entry)
+                return entry
+
+            init_log = add_log("INFO", f"接收到单次提示词流式测试请求 (模式: 🌊 端到端实时打字生成), 字符数: {len(prompt)}", "init")
+            yield f"data: {json.dumps({'type': 'init', 'log': init_log}, ensure_ascii=False)}\n\n"
+
+            router = ar_server.router
+            if router is None:
+                router = reload_router_system()
+
+            try:
+                t_route_0 = time.perf_counter()
+                route_res = router.route(
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=max_tokens,
+                )
+                t_route_1 = time.perf_counter()
+            except Exception as exc:
+                err_log = add_log("ERROR", f"路由决策过程发生异常: {exc}", "router")
+                yield f"data: {json.dumps({'type': 'error', 'error': str(exc), 'log': err_log}, ensure_ascii=False)}\n\n"
+                return
+
+            clf = route_res.classification
+            laya_ms = round(route_res.classification_ms or (clf.latency_s * 1000.0 if clf else 0.0), 2)
+            scoring_ms = max(0.1, round((t_route_1 - t_route_0) * 1000.0 - laya_ms, 2))
+
+            chosen_model = route_res.model
+            provider_name = chosen_model.provider
+            chosen_name = chosen_model.name
+            upstream_id = getattr(chosen_model, "upstream_id", chosen_name)
+            decision_reason = route_res.reason
+
+            clf_dev = getattr(router.classifier, "actual_device", "mps") if hasattr(router, "classifier") else "mps"
+            laya_log = add_log("INFO", f"Laya 本地模型 ({clf_dev.upper()} 加速) 特征分类完成: 类别={clf.category if clf else 'general'}, 难度={clf.difficulty if clf else 0.5:.3f}, 错误代价={clf.stakes if clf else 0.2:.3f}, 耗时={laya_ms}ms", "laya")
+            dec_log = add_log("INFO", f"策略算法仲裁完成: 选定目标模型 [{chosen_name}] (提供商: {provider_name}, 算法排序耗时: {scoring_ms}ms)", "decision")
+            reason_log = add_log("INFO", f"决策理由: {decision_reason}", "decision")
+
+            raw_cfg = get_current_raw_config()
+            global_timeout = float(raw_cfg.get("policy", {}).get("request_timeout_seconds") or 60.0)
+            chosen_timeout_val = getattr(chosen_model, "timeout_s", None)
+            if chosen_timeout_val is None:
+                for rm in raw_cfg.get("models", []):
+                    if (rm.get("name") == chosen_name or rm.get("upstream_id") == upstream_id) and rm.get("timeout_seconds") is not None:
+                        try:
+                            chosen_timeout_val = float(rm["timeout_seconds"])
+                        except (ValueError, TypeError):
+                            pass
+                        break
+            chosen_timeout = float(chosen_timeout_val or global_timeout)
+
+            # 推送路由仲裁完成事件
+            route_event = {
+                "type": "route_result",
+                "status": "ok",
+                "classification": {
+                    "category": clf.category if clf else "general",
+                    "difficulty": round(clf.difficulty, 3) if clf else 0.5,
+                    "stakes": round(clf.stakes, 3) if clf else 0.2,
+                    "device": clf_dev,
+                    "classifier_model": getattr(router.classifier, "model", "convaiinnovations/laya") if hasattr(router, "classifier") else "laya",
+                },
+                "decision": {
+                    "chosen_model": chosen_name,
+                    "provider": provider_name,
+                    "upstream_id": upstream_id,
+                    "policy": route_res.explanation.selection.policy if (route_res.explanation and hasattr(route_res.explanation, 'selection')) else "F_expected",
+                    "reason": decision_reason,
+                    "timeout_seconds": chosen_timeout,
+                },
+                "timing": {
+                    "classifier_ms": laya_ms,
+                    "route_scoring_ms": scoring_ms,
+                },
+                "logs": [init_log, laya_log, dec_log, reason_log],
+            }
+            yield f"data: {json.dumps(route_event, ensure_ascii=False)}\n\n"
+
+            # 构建候选调度序列：首选模型优先，随后从 candidates 及 catalog 中挑选备选模型
+            candidate_models_to_try = [chosen_model]
+            if route_res.explanation and getattr(route_res.explanation, "candidates", None):
+                for c in route_res.explanation.candidates:
+                    c_model = ar_server.config.catalog.get(c.model)
+                    if c_model and c_model.name not in [m.name for m in candidate_models_to_try]:
+                        candidate_models_to_try.append(c_model)
+
+            for m in ar_server.config.catalog.all():
+                if m.name not in [x.name for x in candidate_models_to_try]:
+                    candidate_models_to_try.append(m)
+
+            max_attempts = min(3, len(candidate_models_to_try))
+            upstream_ms = 0.0
+            verify_ms = 0.0
+            dispatched_models: list[dict] = []
+            success = False
+
+            for attempt_idx in range(max_attempts):
+                cur_target = candidate_models_to_try[attempt_idx]
+                cur_provider_name = cur_target.provider
+                cur_model_name = cur_target.name
+                cur_upstream_id = getattr(cur_target, "upstream_id", cur_model_name)
+                is_first_attempt = (attempt_idx == 0)
+
+                cur_provider = ar_server.config.providers.get(cur_provider_name)
+                if not cur_provider:
+                    err_msg = f"未找到提供商 [{cur_provider_name}] 配置"
+                    err_l = add_log("ERROR", f"调度尝试 #{attempt_idx + 1}: {err_msg}", "upstream")
+                    err_item = {
+                        "attempt": attempt_idx + 1,
+                        "model_name": cur_model_name,
+                        "provider": cur_provider_name,
+                        "upstream_id": cur_upstream_id,
+                        "status": "error",
+                        "latency_ms": 0.0,
+                        "output": err_msg,
+                        "error": err_msg,
+                        "is_primary": is_first_attempt,
+                    }
+                    dispatched_models.append(err_item)
+                    next_m = candidate_models_to_try[attempt_idx + 1].name if attempt_idx + 1 < max_attempts else None
+                    yield f"data: {json.dumps({'type': 'attempt_error', 'item': err_item, 'next_model': next_m, 'log': err_l}, ensure_ascii=False)}\n\n"
+                    continue
+
+                base_url = (cur_provider.resolved_base_url or cur_provider.base_url).rstrip("/")
+                headers = {"Content-Type": "application/json"}
+                api_key = cur_provider.api_key
+                if api_key and api_key != "none":
+                    headers["Authorization"] = f"Bearer {api_key}"
+                for k, v in cur_provider.extra_headers.items():
+                    headers[k] = v
+
+                # 读取当前模型专属超时时间
+                model_timeout_s = getattr(cur_target, "timeout_s", None)
+                if model_timeout_s is None:
+                    for rm in raw_cfg.get("models", []):
+                        if (rm.get("name") == cur_model_name or rm.get("upstream_id") == cur_upstream_id) and rm.get("timeout_seconds") is not None:
+                            try:
+                                model_timeout_s = float(rm["timeout_seconds"])
+                            except (ValueError, TypeError):
+                                pass
+                            break
+                effective_timeout = float(model_timeout_s or global_timeout)
+
+                dispatch_label = "首选模型" if is_first_attempt else f"自动降级备选模型 #{attempt_idx}"
+                start_l = add_log("INFO", f"[{dispatch_label}] 开始向上游端点发起流式调用: {base_url}/chat/completions (模型: {cur_upstream_id}, 超时设定: {effective_timeout:.0f}s)", "upstream")
+                
+                # 通知前端开始调度此模型
+                yield f"data: {json.dumps({'type': 'start_model', 'attempt': attempt_idx + 1, 'model_name': cur_model_name, 'provider': cur_provider_name, 'upstream_id': cur_upstream_id, 'is_primary': is_first_attempt, 'timeout_seconds': effective_timeout, 'log': start_l}, ensure_ascii=False)}\n\n"
+
+                payload = {
+                    "model": cur_upstream_id,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    "stream": True,
+                }
+
+                t_up_0 = time.perf_counter()
+                accumulated_content = []
+                accumulated_reasoning = []
+                cur_up_ms = 0.0
+
+                try:
+                    async with httpx.AsyncClient(timeout=effective_timeout) as client:
+                        async with client.stream("POST", f"{base_url}/chat/completions", headers=headers, json=payload) as resp:
+                            if resp.status_code == 200:
+                                async for raw_line in resp.aiter_lines():
+                                    line = raw_line.strip()
+                                    if not line or not line.startswith("data:"):
+                                        continue
+                                    data_body = line[len("data:"):].strip()
+                                    if data_body == "[DONE]":
+                                        break
+                                    try:
+                                        chunk_json = json.loads(data_body)
+                                    except Exception:
+                                        continue
+                                    choices = chunk_json.get("choices") or []
+                                    if not choices:
+                                        continue
+                                    delta = choices[0].get("delta") or {}
+                                    chunk_c = delta.get("content") or ""
+                                    chunk_r = delta.get("reasoning_content") or delta.get("reasoning") or ""
+                                    if chunk_c:
+                                        accumulated_content.append(chunk_c)
+                                    if chunk_r:
+                                        accumulated_reasoning.append(chunk_r)
+
+                                    if chunk_c or chunk_r:
+                                        yield f"data: {json.dumps({'type': 'delta', 'attempt': attempt_idx + 1, 'content': chunk_c, 'reasoning': chunk_r}, ensure_ascii=False)}\n\n"
+
+                                cur_up_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
+                                upstream_ms += cur_up_ms
+
+                                full_content = "".join(accumulated_content)
+                                full_reasoning = "".join(accumulated_reasoning)
+                                full_display_output = ""
+                                if full_content and full_reasoning:
+                                    full_display_output = f"【深度思考推导】\n{full_reasoning}\n\n【生成回答】\n{full_content}"
+                                elif full_content:
+                                    full_display_output = full_content
+                                elif full_reasoning:
+                                    full_display_output = full_reasoning
+                                else:
+                                    full_display_output = "（生成完成，上游返回空白文本）"
+
+                                succ_l = add_log("INFO", f"上游流式传输完成: 耗时 {cur_up_ms}ms, 累计吐出 {len(full_display_output)} 字符", "upstream")
+                                dispatch_entry = {
+                                    "attempt": attempt_idx + 1,
+                                    "model_name": cur_model_name,
+                                    "provider": cur_provider_name,
+                                    "upstream_id": cur_upstream_id,
+                                    "status": "success",
+                                    "http_status": 200,
+                                    "latency_ms": cur_up_ms,
+                                    "timeout_seconds": effective_timeout,
+                                    "reply_snippet": full_display_output[:300] + ("..." if len(full_display_output) > 300 else ""),
+                                    "output": full_display_output,
+                                    "full_reply": full_display_output,
+                                    "is_primary": is_first_attempt,
+                                }
+                                dispatched_models.append(dispatch_entry)
+
+                                # 触发 Laya 质量验收判定 (如果有)
+                                if full_content and hasattr(router, "check"):
+                                    t_chk_0 = time.perf_counter()
+                                    chk_start_l = add_log("INFO", "触发 Laya 质量验收判定 (Adequacy Verification)...", "verify")
+                                    yield f"data: {json.dumps({'type': 'verify_start', 'log': chk_start_l}, ensure_ascii=False)}\n\n"
+                                    try:
+                                        verdict = await asyncio.to_thread(router.check, route_res, prompt, full_content)
+                                        verify_ms = round((time.perf_counter() - t_chk_0) * 1000.0, 2)
+                                        chk_done_l = add_log("INFO", f"Laya 质量判定完成: 满意度预估={getattr(verdict, 'p_adequate', 'N/A')}, 是否建议升级={getattr(verdict, 'escalate', False)}, 耗时={verify_ms}ms", "verify")
+                                        yield f"data: {json.dumps({'type': 'verify_done', 'log': chk_done_l, 'verification_ms': verify_ms}, ensure_ascii=False)}\n\n"
+                                    except Exception as chk_e:
+                                        chk_warn_l = add_log("WARN", f"Laya 质量判定跳过或异常: {chk_e}", "verify")
+                                        yield f"data: {json.dumps({'type': 'verify_done', 'log': chk_warn_l, 'verification_ms': 0}, ensure_ascii=False)}\n\n"
+
+                                # 通知当前模型调用完成
+                                yield f"data: {json.dumps({'type': 'model_success', 'attempt': attempt_idx + 1, 'item': dispatch_entry, 'log': succ_l}, ensure_ascii=False)}\n\n"
+                                success = True
+                                break
+                            else:
+                                err_bytes = await resp.aread()
+                                err_text = err_bytes.decode("utf-8", errors="replace")[:200]
+                                err_detail = f"HTTP {resp.status_code}: {err_text}"
+                                cur_up_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
+                                upstream_ms += cur_up_ms
+                                warn_l = add_log("WARN", f"模型 [{cur_model_name}] 响应异常: {err_detail} (耗时 {cur_up_ms}ms)", "upstream")
+                                err_item = {
+                                    "attempt": attempt_idx + 1,
+                                    "model_name": cur_model_name,
+                                    "provider": cur_provider_name,
+                                    "upstream_id": cur_upstream_id,
+                                    "status": "error",
+                                    "http_status": resp.status_code,
+                                    "latency_ms": cur_up_ms,
+                                    "timeout_seconds": effective_timeout,
+                                    "output": f"上游接口异常: {err_detail}",
+                                    "error": err_detail,
+                                    "is_primary": is_first_attempt,
+                                }
+                                dispatched_models.append(err_item)
+                                next_name = candidate_models_to_try[attempt_idx + 1].name if attempt_idx + 1 < max_attempts else None
+                                if next_name:
+                                    add_log("INFO", f"准备触发自动降级容灾，转向调度下一个候选模型 [{next_name}]...", "upstream")
+                                yield f"data: {json.dumps({'type': 'attempt_error', 'item': err_item, 'next_model': next_name, 'log': warn_l}, ensure_ascii=False)}\n\n"
+                except httpx.TimeoutException:
+                    cur_up_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
+                    upstream_ms += cur_up_ms
+                    err_detail = f"上游端点 {base_url} 连接超时 ({effective_timeout:.0f}s)"
+                    warn_l = add_log("WARN", f"模型 [{cur_model_name}] 请求超时 (耗时 {cur_up_ms}ms, 限制 {effective_timeout:.0f}s)", "upstream")
+                    err_item = {
+                        "attempt": attempt_idx + 1,
+                        "model_name": cur_model_name,
+                        "provider": cur_provider_name,
+                        "upstream_id": cur_upstream_id,
+                        "status": "error",
+                        "latency_ms": cur_up_ms,
+                        "timeout_seconds": effective_timeout,
+                        "output": f"连接超时: {err_detail}",
+                        "error": err_detail,
+                        "is_primary": is_first_attempt,
+                    }
+                    dispatched_models.append(err_item)
+                    next_name = candidate_models_to_try[attempt_idx + 1].name if attempt_idx + 1 < max_attempts else None
+                    if next_name:
+                        add_log("INFO", f"准备触发自动降级容灾，转向调度下一个候选模型 [{next_name}]...", "upstream")
+                    yield f"data: {json.dumps({'type': 'attempt_error', 'item': err_item, 'next_model': next_name, 'log': warn_l}, ensure_ascii=False)}\n\n"
+                except Exception as e:
+                    cur_up_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
+                    upstream_ms += cur_up_ms
+                    err_detail = str(e)
+                    warn_l = add_log("WARN", f"模型 [{cur_model_name}] 连接异常: {err_detail} (耗时 {cur_up_ms}ms)", "upstream")
+                    err_item = {
+                        "attempt": attempt_idx + 1,
+                        "model_name": cur_model_name,
+                        "provider": cur_provider_name,
+                        "upstream_id": cur_upstream_id,
+                        "status": "error",
+                        "latency_ms": cur_up_ms,
+                        "output": f"网络异常: {err_detail}",
+                        "error": err_detail,
+                        "is_primary": is_first_attempt,
+                    }
+                    dispatched_models.append(err_item)
+                    next_name = candidate_models_to_try[attempt_idx + 1].name if attempt_idx + 1 < max_attempts else None
+                    if next_name:
+                        add_log("INFO", f"准备触发自动降级容灾，转向调度下一个候选模型 [{next_name}]...", "upstream")
+                    yield f"data: {json.dumps({'type': 'attempt_error', 'item': err_item, 'next_model': next_name, 'log': warn_l}, ensure_ascii=False)}\n\n"
+
+            # 全程结束
+            total_latency_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
+            done_l = add_log("INFO", f"全路径测试流程执行完毕, 全程总耗时: {total_latency_ms}ms", "done")
+
+            final_data = {
+                "type": "done",
+                "status": "ok" if success else "error",
+                "mode": mode,
+                "timing": {
+                    "classifier_ms": laya_ms,
+                    "route_scoring_ms": scoring_ms,
+                    "upstream_request_ms": upstream_ms,
+                    "verification_ms": verify_ms,
+                    "total_latency_ms": total_latency_ms,
+                },
+                "classification": {
+                    "category": clf.category if clf else "general",
+                    "difficulty": round(clf.difficulty, 3) if clf else 0.5,
+                    "stakes": round(clf.stakes, 3) if clf else 0.2,
+                    "device": clf_dev,
+                    "classifier_model": getattr(router.classifier, "model", "convaiinnovations/laya") if hasattr(router, "classifier") else "laya",
+                },
+                "decision": {
+                    "chosen_model": chosen_name,
+                    "provider": provider_name,
+                    "upstream_id": upstream_id,
+                    "policy": route_res.explanation.selection.policy if (route_res.explanation and hasattr(route_res.explanation, 'selection')) else "F_expected",
+                    "reason": decision_reason,
+                    "timeout_seconds": chosen_timeout,
+                },
+                "dispatched_models": dispatched_models,
+                "logs": logs,
+            }
+            yield f"data: {json.dumps(final_data, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # --- ⚡ 纯路由预测或非流式模式（原代码保持不变）---
     logs: list[dict] = []
     def add_log(level: str, msg: str, stage: str = "general"):
         ts = time.strftime("%H:%M:%S") + f".{int((time.time() % 1) * 1000):03d}"

@@ -22,6 +22,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const dd = document.getElementById("lbColumnsDropdown");
     if (dd) dd.style.display = "none";
   });
+
+  // End-to-end vs Stream checkbox synchronization
+  const chkEndToEnd = document.getElementById("chkEndToEndTest");
+  const chkStream = document.getElementById("chkStreamTest");
+  const lblStream = document.getElementById("lblStreamTest");
+  if (chkEndToEnd && chkStream && lblStream) {
+    chkEndToEnd.addEventListener("change", () => {
+      chkStream.disabled = !chkEndToEnd.checked;
+      lblStream.style.opacity = chkEndToEnd.checked ? "1" : "0.5";
+      lblStream.style.pointerEvents = chkEndToEnd.checked ? "auto" : "none";
+    });
+  }
 });
 
 // Toast notification helper
@@ -383,13 +395,264 @@ async function runSingleTest() {
     return;
   }
   const isEndToEnd = document.getElementById("chkEndToEndTest")?.checked || false;
+  const isStream = isEndToEnd && (document.getElementById("chkStreamTest")?.checked || false);
   const mode = isEndToEnd ? "end_to_end" : "predict_only";
 
   const btn = document.getElementById("btnTestRoute");
   btn.disabled = true;
-  btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> ${isEndToEnd ? '正在端到端生成...' : '正在极速决策...'}`;
+  btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> ${isStream ? '正在流式打字生成...' : (isEndToEnd ? '正在端到端生成...' : '正在极速决策...')}`;
 
   try {
+    if (isStream) {
+      // --- 🌊 流式打字机交互模式 ---
+      document.getElementById("singleTestResult").style.display = "block";
+      const dispSection = document.getElementById("dispatchedModelsSection");
+      const dispList = document.getElementById("dispatchedModelsList");
+      const dispCountBadge = document.getElementById("badgeDispatchedCount");
+      const consoleEl = document.getElementById("traceConsole");
+      if (consoleEl) consoleEl.innerHTML = "";
+      if (dispSection) dispSection.style.display = "block";
+      if (dispList) dispList.innerHTML = "";
+
+      const addTraceLine = (item) => {
+        if (!consoleEl || !item) return;
+        const row = document.createElement("div");
+        row.className = "trace-line";
+        const tagClass = item.level === "ERROR" ? "error" : (item.level === "WARN" ? "warn" : "info");
+        row.innerHTML = `
+          <span class="trace-ts">[${item.timestamp}]</span>
+          <span class="trace-tag ${tagClass}">${item.level}</span>
+          <span class="trace-msg">${escapeHtml(item.message)}</span>
+        `;
+        consoleEl.appendChild(row);
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+      };
+
+      const updateTimingAndBars = (layaMs, scoreMs, upMs, verMs, totMs) => {
+        const tot = Math.max(totMs || (layaMs + scoreMs + upMs + verMs), 0.1);
+        document.getElementById("chipLayaMs").textContent = `${layaMs} ms`;
+        document.getElementById("chipScoringMs").textContent = `${scoreMs} ms`;
+        const upWrap = document.getElementById("chipUpstreamWrap");
+        const verWrap = document.getElementById("chipVerifyWrap");
+        if (upMs > 0) {
+          upWrap.style.display = "inline-flex";
+          document.getElementById("chipUpstreamMs").textContent = `${upMs} ms`;
+        } else {
+          upWrap.style.display = "none";
+        }
+        if (verMs > 0) {
+          verWrap.style.display = "inline-flex";
+          document.getElementById("chipVerifyMs").textContent = `${verMs} ms`;
+        } else {
+          verWrap.style.display = "none";
+        }
+        document.getElementById("barLaya").style.width = `${Math.min(100, (layaMs / tot) * 100)}%`;
+        document.getElementById("barScoring").style.width = `${Math.min(100, (scoreMs / tot) * 100)}%`;
+        document.getElementById("barUpstream").style.width = `${Math.min(100, (upMs / tot) * 100)}%`;
+        document.getElementById("barVerify").style.width = `${Math.min(100, (verMs / tot) * 100)}%`;
+        document.getElementById("resTotalLatency").textContent = `${Math.round(tot)} ms`;
+      };
+
+      const res = await fetch("/api/router/test-single", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: prompt,
+          mode: mode,
+          max_tokens: 1024,
+          stream: true,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        showToast(`测试请求响应失败: ${errData.detail || res.statusText}`, "danger");
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+      let curAttempt = 0;
+      let reasoningText = "";
+      let contentText = "";
+      let curModelCard = null;
+      let reasoningBlock = null;
+      let contentPre = null;
+      let cursorSpan = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop(); // 保留不完整的末尾
+
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line.startsWith("data:")) continue;
+          const jsonStr = line.slice(5).trim();
+          if (!jsonStr || jsonStr === "[DONE]") continue;
+
+          let ev;
+          try {
+            ev = JSON.parse(jsonStr);
+          } catch (e) {
+            continue;
+          }
+
+          if (ev.log) addTraceLine(ev.log);
+          if (ev.logs) ev.logs.forEach(l => addTraceLine(l));
+
+          if (ev.type === "route_result") {
+            document.getElementById("resCategory").textContent = ev.classification?.category || "general";
+            document.getElementById("resDifficulty").textContent = ev.classification?.difficulty !== undefined ? ev.classification.difficulty.toFixed(3) : "0.500";
+            document.getElementById("resStakes").textContent = ev.classification?.stakes !== undefined ? ev.classification.stakes.toFixed(3) : "0.200";
+            document.getElementById("resChosenModel").textContent = `${ev.decision?.chosen_model || '--'} (提供商: ${ev.decision?.provider || '--'} | ${ev.decision?.reason || '期望成本最小化'})`;
+
+            const tBadge = document.getElementById("resTimeoutBadge");
+            const effectiveTimeout = ev.decision?.timeout_seconds || (currentConfig?.policy?.request_timeout_seconds || 60);
+            if (tBadge) {
+              tBadge.textContent = `⏱️ 超时时限: ${effectiveTimeout}s`;
+              tBadge.style.display = "inline-flex";
+            }
+            document.getElementById("resModeBadge").textContent = "模式: 🌊 端到端实时打字生成 (Stream)";
+
+            const layaMs = ev.timing?.classifier_ms || 0;
+            const scoreMs = ev.timing?.route_scoring_ms || 0;
+            updateTimingAndBars(layaMs, scoreMs, 0, 0, layaMs + scoreMs);
+          } else if (ev.type === "start_model") {
+            curAttempt = ev.attempt || 1;
+            if (dispCountBadge) {
+              dispCountBadge.textContent = `${curAttempt} 个模型已调度`;
+            }
+            reasoningText = "";
+            contentText = "";
+
+            curModelCard = document.createElement("div");
+            curModelCard.className = "dispatched-model-card status-streaming";
+            curModelCard.id = `dispCard_${curAttempt}`;
+
+            const roleTag = ev.is_primary 
+              ? `<span class="dispatched-role-tag dispatched-role-primary">👑 路由首选模型</span>`
+              : `<span class="dispatched-role-tag dispatched-role-fallback">🔄 自动降级备选 (#${curAttempt})</span>`;
+
+            curModelCard.innerHTML = `
+              <div class="dispatched-card-header">
+                <div class="dispatched-model-title">
+                  ${roleTag}
+                  <span class="dispatched-model-name">${escapeHtml(ev.model_name || '--')}</span>
+                  <span class="badge badge-subtle" style="font-size:11px;">提供商: ${escapeHtml(ev.provider || '--')}</span>
+                  <span style="font-size:11.5px; color:var(--text-muted); margin-left:4px;">⏱️ 时限: ${ev.timeout_seconds || 60}s</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;" id="dispHeaderActions_${curAttempt}">
+                  <span class="badge badge-info" id="dispStatusBadge_${curAttempt}" style="font-size:11.5px; padding:3px 8px;">
+                    <span class="spinner" style="width:11px;height:11px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:4px;"></span>正在实时生成...
+                  </span>
+                </div>
+              </div>
+              <div class="dispatched-card-body" id="dispBody_${curAttempt}">
+                <div class="reasoning-block" id="reasoningBlock_${curAttempt}" style="display:none;">
+                  <div class="reasoning-block-title">🧠 思考推导过程 (Reasoning)</div>
+                  <div class="reasoning-content" id="reasoningText_${curAttempt}"></div>
+                </div>
+                <pre class="dispatched-output-content" id="outputContent_${curAttempt}"></pre>
+              </div>
+            `;
+            dispList.appendChild(curModelCard);
+
+            reasoningBlock = document.getElementById(`reasoningBlock_${curAttempt}`);
+            contentPre = document.getElementById(`outputContent_${curAttempt}`);
+            cursorSpan = document.createElement("span");
+            cursorSpan.className = "streaming-cursor";
+            contentPre.appendChild(cursorSpan);
+          } else if (ev.type === "delta") {
+            if (ev.reasoning) {
+              reasoningText += ev.reasoning;
+              if (reasoningBlock) {
+                reasoningBlock.style.display = "block";
+                const rTextEl = document.getElementById(`reasoningText_${curAttempt}`);
+                if (rTextEl) rTextEl.textContent = reasoningText;
+              }
+            }
+            if (ev.content) {
+              contentText += ev.content;
+              if (contentPre) {
+                contentPre.textContent = contentText;
+                contentPre.appendChild(cursorSpan);
+                contentPre.scrollTop = contentPre.scrollHeight;
+              }
+            }
+          } else if (ev.type === "attempt_error") {
+            const item = ev.item || {};
+            const card = document.getElementById(`dispCard_${curAttempt}`) || curModelCard;
+            if (card) {
+              card.className = "dispatched-model-card status-error";
+              const badge = document.getElementById(`dispStatusBadge_${curAttempt}`);
+              if (badge) {
+                badge.className = "badge badge-danger";
+                badge.textContent = `✗ 调度失败 (${item.latency_ms || 0}ms)`;
+              }
+              const body = document.getElementById(`dispBody_${curAttempt}`);
+              if (body) {
+                body.innerHTML = `
+                  <div class="dispatched-error-content">
+                    <strong>上游调用异常:</strong>
+                    <span>${escapeHtml(item.output || item.error || '请求失败')}</span>
+                    ${ev.next_model ? `<span style="color:#b91c1c; font-size:11.5px; margin-top:2px;">⚠️ 已自动触发降级容灾，转向调度下一个候选模型 [${escapeHtml(ev.next_model)}]</span>` : ''}
+                  </div>
+                `;
+              }
+            }
+          } else if (ev.type === "model_success") {
+            const item = ev.item || {};
+            const card = document.getElementById(`dispCard_${curAttempt}`) || curModelCard;
+            if (card) {
+              card.className = "dispatched-model-card status-success";
+              const badge = document.getElementById(`dispStatusBadge_${curAttempt}`);
+              if (badge) {
+                badge.className = "badge badge-success";
+                badge.textContent = `✓ 调度成功 (${item.latency_ms || 0}ms)`;
+              }
+              const headerActions = document.getElementById(`dispHeaderActions_${curAttempt}`);
+              if (headerActions) {
+                const copyBtn = document.createElement("button");
+                copyBtn.type = "button";
+                copyBtn.className = "btn btn-outline btn-sm";
+                copyBtn.style.padding = "2px 8px";
+                copyBtn.style.fontSize = "11.5px";
+                copyBtn.innerHTML = "📋 复制回答";
+                copyBtn.onclick = () => copyModelOutput(curAttempt, copyBtn);
+                headerActions.appendChild(copyBtn);
+              }
+              if (cursorSpan && cursorSpan.parentNode) {
+                cursorSpan.parentNode.removeChild(cursorSpan);
+              }
+              if (contentPre) {
+                contentPre.textContent = contentText || "（生成完成，上游返回空白文本）";
+              }
+            }
+          } else if (ev.type === "done") {
+            lastDiagnosticData = ev;
+            const timing = ev.timing || {};
+            const layaMs = timing.classifier_ms || 0;
+            const scoreMs = timing.route_scoring_ms || 0;
+            const upMs = timing.upstream_request_ms || 0;
+            const verMs = timing.verification_ms || 0;
+            const totMs = timing.total_latency_ms || 0;
+            updateTimingAndBars(layaMs, scoreMs, upMs, verMs, totMs);
+
+            if (cursorSpan && cursorSpan.parentNode) {
+              cursorSpan.parentNode.removeChild(cursorSpan);
+            }
+            showToast(`流式生成完毕 (全程总耗时: ${totMs}ms)`, "success");
+          }
+        }
+      }
+      return;
+    }
+
+    // --- ⚡ 纯路由预测或非流式模式 ---
     const res = await fetch("/api/router/test-single", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

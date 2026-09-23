@@ -146,6 +146,10 @@
                   <input type="checkbox" id="chkEndToEndTest" style="cursor: pointer;" checked>
                   <span>🌐 包含端到端真实生成 (自动调用被调度的模型并显示回答)</span>
                 </label>
+                <label id="lblStreamTest" style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); cursor: pointer; user-select: none;">
+                  <input type="checkbox" id="chkStreamTest" style="cursor: pointer;" checked>
+                  <span>🌊 实时流式打字输出 (Stream)</span>
+                </label>
                 <button class="btn btn-primary" id="btnTestRoute" onclick="runSingleTest()">
                   <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                   <span>立即运行路由与模型生成</span>
