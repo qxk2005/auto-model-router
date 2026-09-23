@@ -645,6 +645,63 @@ async def view_report(filename: str, download: bool = False):
     return HTMLResponse(p.read_text(encoding="utf-8"))
 
 
+@app.delete("/api/reports/{filename}")
+async def delete_report(filename: str):
+    """Delete a single HTML benchmark report."""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="非法文件名")
+    if not filename.endswith(".html"):
+        raise HTTPException(status_code=400, detail="仅允许删除 HTML 格式报告")
+
+    p = REPORTS_DIR / filename
+    if not p.exists() or not p.is_file():
+        raise HTTPException(status_code=404, detail="报告文件不存在或已被删除")
+
+    try:
+        p.unlink()
+        return {"status": "ok", "message": f"报告 {filename} 已成功删除"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除报告文件失败: {e}")
+
+
+class BatchDeleteReportsRequest(BaseModel):
+    filenames: list[str]
+
+
+@app.post("/api/reports/batch-delete")
+async def batch_delete_reports(payload: BatchDeleteReportsRequest):
+    """Batch delete selected HTML benchmark reports."""
+    if not payload.filenames:
+        raise HTTPException(status_code=400, detail="未提供需要删除的文件列表")
+
+    deleted = []
+    failed = []
+
+    for fname in payload.filenames:
+        if "/" in fname or "\\" in fname or ".." in fname or not fname.endswith(".html"):
+            raise HTTPException(status_code=400, detail=f"检测到非法文件名: {fname}，仅允许删除 .html 报告文件")
+
+    for fname in payload.filenames:
+        p = REPORTS_DIR / fname
+        if p.exists() and p.is_file():
+            try:
+                p.unlink()
+                deleted.append(fname)
+            except Exception as e:
+                failed.append({"filename": fname, "reason": str(e)})
+        else:
+            failed.append({"filename": fname, "reason": "文件不存在"})
+
+    return {
+        "status": "ok",
+        "deleted_count": len(deleted),
+        "failed_count": len(failed),
+        "deleted_files": deleted,
+        "failed_files": failed,
+        "message": f"成功删除 {len(deleted)} 个报告" + (f"，{len(failed)} 个处理失败" if failed else ""),
+    }
+
+
 # ---------------------------------------------------------------------------
 # WebUI Static Frontend
 # ---------------------------------------------------------------------------
