@@ -16,6 +16,19 @@ from typing import Any
 from evaluator import BenchmarkSummary, CaseResult
 
 
+def fix_mojibake(s: Any) -> str:
+    """Detect and repair UTF-8 bytes mistakenly decoded as GBK/CP936 (e.g. 鍏风敂璇曞畾 -> 具生涌动)."""
+    if not s or not isinstance(s, str):
+        return str(s) if s is not None else ""
+    try:
+        repaired = s.encode("gbk").decode("utf-8")
+        if len(repaired) < len(s):
+            return repaired
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    return s
+
+
 class ReportGenerator:
     def __init__(self, output_dir: str = "reports"):
         self.output_dir = Path(output_dir)
@@ -59,24 +72,24 @@ class ReportGenerator:
 
         snapshot_html = ""
         if router_params or laya_params or active_models:
-            policy_disp = router_params.get("policy_display", router_params.get("policy_name", "F_expected"))
+            policy_disp = fix_mojibake(router_params.get("policy_display", router_params.get("policy_name", "F_expected")))
             rate_val = router_params.get("usd_cny_rate", usd_rate)
             stakes_val = router_params.get("stakes_usd", 2.0)
             detect_val = router_params.get("detect_probability", 0.6)
             mult_val = router_params.get("failure_cost_multiplier", 1.0)
             turns_val = router_params.get("remaining_turns_horizon", 3)
 
-            dev_disp = laya_params.get("device_display", "Apple Metal (MPS) GPU 加速 [推荐 M4 Max]")
-            backend_disp = laya_params.get("classifier_backend_display", "local (本地 Laya 引擎)")
+            dev_disp = fix_mojibake(laya_params.get("device_display", "Apple Metal (MPS) GPU 加速 [推荐 M4 Max]"))
+            backend_disp = fix_mojibake(laya_params.get("classifier_backend_display", "local (本地 Laya 引擎)"))
             ckpt_val = laya_params.get("checkpoint", "convaiinnovations/laya")
             subfolder_val = laya_params.get("subfolder", "multilingual")
             chars_val = laya_params.get("request_chars_cap", 6000)
 
             models_rows = []
             for m in active_models:
-                m_name = m.get("name", "")
-                m_prov = m.get("provider", "none")
-                m_up = m.get("upstream_id", m_name)
+                m_name = fix_mojibake(m.get("name", ""))
+                m_prov = fix_mojibake(m.get("provider", "none"))
+                m_up = fix_mojibake(m.get("upstream_id", m_name))
                 is_free = m.get("is_free", False)
                 p_in_cny = m.get("input_cny", 0.0)
                 p_out_cny = m.get("output_cny", 0.0)

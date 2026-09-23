@@ -129,7 +129,8 @@ def from_budget_file(path: str | os.PathLike, name: str) -> QuotaState | None:
     if not p.exists():
         return None
     try:
-        data = json.loads(p.read_text())
+        text = p.read_text(encoding="utf-8")
+        data = json.loads(text)
     except json.JSONDecodeError:
         return None
     return _state_from_document(data, name, measured_at=p.stat().st_mtime, source=str(p))
