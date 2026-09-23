@@ -688,7 +688,9 @@ class ReportGenerator:
       border-radius: 4px;
     }}
 
-    /* Waterfall Trace Drawer & Timeline */
+    /* ========================================================
+       Jaeger / OpenTelemetry Trace Timeline (Pixel-grade APM)
+       ======================================================== */
     .trace-btn {{
       background: #e0f2fe;
       color: #0369a1;
@@ -715,82 +717,417 @@ class ReportGenerator:
       border-top: 1px dashed #cbd5e1;
       border-bottom: 2px solid #cbd5e1;
     }}
-    .trace-waterfall-box {{
+
+    .jaeger-container {{
       background: #ffffff;
       border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 14px 16px;
-      margin-bottom: 14px;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin-bottom: 6px;
     }}
-    .waterfall-header {{
+    
+    /* Top Trace Bar */
+    .jaeger-topbar {{
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 12px;
-      font-size: 12.5px;
-      font-weight: 600;
-      color: var(--text-main);
+      padding: 10px 16px;
+      background: #ffffff;
+      border-bottom: 1px solid #f1f5f9;
     }}
-    .waterfall-track {{
-      height: 28px;
-      background: #f1f5f9;
-      border: 1px solid #e2e8f0;
-      border-radius: 6px;
-      position: relative;
-      overflow: hidden;
-      display: flex;
-      margin-bottom: 8px;
-    }}
-    .waterfall-block {{
-      height: 100%;
+    .jaeger-title-group {{
       display: flex;
       align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      font-weight: 700;
-      color: #ffffff;
-      position: absolute;
-      top: 0;
+      gap: 10px;
+    }}
+    .jaeger-icon-btn {{
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #64748b;
+      display: inline-flex;
+      align-items: center;
+      padding: 4px;
       border-radius: 4px;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+      transition: background 0.15s;
+    }}
+    .jaeger-icon-btn:hover {{
+      background: #f1f5f9;
+      color: #0f172a;
+    }}
+    .jaeger-service-name {{
+      font-weight: 700;
+      font-size: 15px;
+      color: #0f172a;
+    }}
+    .jaeger-trace-id {{
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #64748b;
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid #e2e8f0;
+    }}
+    .jaeger-top-actions {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }}
+    .jaeger-find-box {{
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #334155;
+      outline: none;
+      width: 140px;
+      background: #ffffff;
+    }}
+    .jaeger-find-box:focus {{
+      border-color: #00a396;
+    }}
+    .jaeger-view-badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: default;
+    }}
+
+    /* Trace Meta Stats Row */
+    .jaeger-meta-bar {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 20px;
+      padding: 6px 16px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 12px;
+      color: #64748b;
+    }}
+    .jaeger-meta-item strong {{
+      color: #0f172a;
+      font-weight: 600;
+    }}
+
+    /* Minimap Overview Timeline */
+    .jaeger-minimap {{
+      padding: 8px 16px;
+      background: #fdfdfd;
+      border-bottom: 1px solid #e2e8f0;
+    }}
+    .jaeger-minimap-ruler {{
+      display: flex;
+      justify-content: space-between;
+      font-size: 10.5px;
+      color: #94a3b8;
+      font-family: var(--font-mono);
+      margin-bottom: 4px;
+      padding: 0 2px;
+    }}
+    .jaeger-minimap-track {{
+      height: 18px;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+    }}
+    .jaeger-minimap-bar {{
+      position: absolute;
+      top: 2px;
+      bottom: 2px;
+      border-radius: 2px;
+      background: #00a396;
+      opacity: 0.7;
+    }}
+    .jaeger-minimap-bar.classifier {{ background: #0284c7; }}
+    .jaeger-minimap-bar.escalate {{ background: #f59e0b; }}
+    .jaeger-minimap-bar.error {{ background: #ef4444; }}
+
+    /* Split Grid Header */
+    .jaeger-grid-header {{
+      display: flex;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 11.5px;
+      color: #64748b;
+      font-weight: 600;
+      user-select: none;
+    }}
+    .jaeger-col-tree-head {{
+      width: 320px;
+      min-width: 320px;
+      padding: 8px 14px;
+      border-right: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }}
+    .jaeger-col-timeline-head {{
+      flex: 1;
+      padding: 8px 14px;
+      position: relative;
+    }}
+    .jaeger-ruler-ticks {{
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #64748b;
+      width: 100%;
+    }}
+
+    /* Span Rows */
+    .jaeger-span-wrapper {{
+      border-bottom: 1px solid #f1f5f9;
+      background: #ffffff;
+    }}
+    .jaeger-span-wrapper:hover {{
+      background: #fafafa;
+    }}
+    .jaeger-span-row {{
+      display: flex;
+      align-items: center;
+      min-height: 36px;
+      cursor: pointer;
+      position: relative;
+    }}
+    .jaeger-span-tree-cell {{
+      width: 320px;
+      min-width: 320px;
+      padding: 6px 12px;
+      border-right: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
       overflow: hidden;
       white-space: nowrap;
       text-overflow: ellipsis;
-      padding: 0 6px;
-      transition: width 0.3s ease;
+      box-sizing: border-box;
     }}
-    .waterfall-classifier {{ background: #0284c7; }}
-    .waterfall-primary {{ background: #d97706; }}
-    .waterfall-verifier {{ background: #7c3aed; }}
-    .waterfall-escalate {{ background: #059669; }}
-    .waterfall-error {{ background: #ef4444; }}
+    .jaeger-indent-guide {{
+      display: inline-block;
+      width: 18px;
+      height: 100%;
+      border-left: 2px solid #e2e8f0;
+      margin-right: 2px;
+      flex-shrink: 0;
+    }}
+    .jaeger-color-strip {{
+      width: 4px;
+      height: 18px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }}
+    .jaeger-color-strip.svc-amra {{ background: #7c3aed; }}
+    .jaeger-color-strip.svc-laya {{ background: #00a396; }}
+    .jaeger-color-strip.svc-primary {{ background: #00a396; }}
+    .jaeger-color-strip.svc-escalate {{ background: #f59e0b; }}
+    .jaeger-color-strip.svc-error {{ background: #ef4444; }}
 
-    .trace-steps-grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 12px;
+    .jaeger-svc-label {{
+      font-size: 11.5px;
+      color: #64748b;
+      font-weight: 500;
+      margin-right: 4px;
     }}
-    .trace-step-card {{
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 12px 14px;
+    .jaeger-op-label {{
       font-size: 12px;
+      font-weight: 600;
+      color: #0f172a;
+    }}
+
+    .jaeger-span-timeline-cell {{
+      flex: 1;
+      padding: 6px 14px;
+      position: relative;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      box-sizing: border-box;
+    }}
+    /* Vertical background grid reference lines */
+    .jaeger-bg-grid {{
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 14px;
+      right: 14px;
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none;
+    }}
+    .jaeger-bg-grid-line {{
+      width: 1px;
+      height: 100%;
+      background: #f1f5f9;
+    }}
+
+    /* Span Bar */
+    .jaeger-bar-item {{
+      position: absolute;
+      top: 8px;
+      height: 20px;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      padding: 0 6px;
+      font-size: 10.5px;
+      font-weight: 600;
+      color: #ffffff;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+      transition: opacity 0.15s ease, filter 0.15s ease;
+      z-index: 2;
+      overflow: visible;
+      white-space: nowrap;
+    }}
+    .jaeger-bar-item:hover {{
+      filter: brightness(1.08);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+    }}
+    .jaeger-bar-item.svc-amra {{ background: #7c3aed; }}
+    .jaeger-bar-item.svc-laya {{ background: #00a396; }}
+    .jaeger-bar-item.svc-primary {{ background: #00a396; }}
+    .jaeger-bar-item.svc-escalate {{ background: #f59e0b; }}
+    .jaeger-bar-item.svc-error {{ background: #ef4444; }}
+
+    .jaeger-bar-label-outside {{
+      position: absolute;
+      left: calc(100% + 6px);
+      top: 50%;
+      transform: translateY(-50%);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: #475569;
+      pointer-events: none;
+      white-space: nowrap;
+    }}
+
+    /* Span Detail Expanded Drawer (Pixel Jaeger Card) */
+    .jaeger-detail-box {{
+      background: #ffffff;
+      border-top: 1px solid #f1f5f9;
+      border-bottom: 2px solid #e2e8f0;
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }}
+    .jaeger-detail-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #f1f5f9;
+      padding-bottom: 6px;
+    }}
+    .jaeger-detail-title {{
+      font-size: 13.5px;
+      font-weight: 700;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }}
+    .jaeger-detail-meta {{
+      font-size: 11.5px;
+      color: #64748b;
+      display: flex;
+      gap: 14px;
+    }}
+    .jaeger-detail-meta strong {{
+      color: #0f172a;
+    }}
+
+    .jaeger-tags-group {{
       display: flex;
       flex-direction: column;
       gap: 4px;
     }}
-    .trace-step-header {{
+    .jaeger-section-title {{
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #475569;
+      cursor: pointer;
       display: flex;
-      justify-content: space-between;
       align-items: center;
+      gap: 4px;
+      user-select: none;
+    }}
+    .jaeger-tags-grid {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 3px;
+    }}
+    .jaeger-tag-badge {{
+      display: inline-flex;
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+    }}
+    .jaeger-tag-key {{
+      color: #64748b;
+      margin-right: 4px;
+    }}
+    .jaeger-tag-val {{
+      color: #0f172a;
       font-weight: 600;
     }}
-    .trace-step-dur {{
+
+    .jaeger-logs-box {{
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 11.5px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }}
+    .jaeger-log-item {{
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      font-size: 11px;
+    }}
+    .jaeger-log-time {{
       font-family: var(--font-mono);
-      font-weight: 700;
-      color: #0284c7;
+      color: #00a396;
+      font-weight: 600;
+      min-width: 50px;
+    }}
+    .jaeger-log-event {{
+      font-weight: 600;
+      color: #334155;
+    }}
+    .jaeger-log-payload {{
+      color: #64748b;
+      word-break: break-all;
+    }}
+
+    .jaeger-span-footer {{
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      font-size: 11px;
+      color: #94a3b8;
+      gap: 6px;
     }}
     
     /* Footer */
@@ -1114,6 +1451,90 @@ class ReportGenerator:
       modelFilter.appendChild(opt);
     }});
 
+    // Format duration adaptively (µs, ms, s)
+    function formatJaegerDuration(ms) {{
+      if (ms === undefined || ms === null || isNaN(ms)) return "0ms";
+      if (ms < 1.0) {{
+        return `${{Math.round(ms * 1000)}}µs`;
+      }} else if (ms < 1000.0) {{
+        return `${{ms < 10 ? ms.toFixed(2) : ms.toFixed(1)}}ms`;
+      }} else {{
+        return `${{(ms / 1000.0).toFixed(2)}}s`;
+      }}
+    }}
+
+    // Toggle specific span detail drawer
+    function toggleJaegerSpanDetail(spanKey) {{
+      const d = document.getElementById(`detail_${{spanKey}}`);
+      const arrow = document.getElementById(`arrow_${{spanKey}}`);
+      if (!d) return;
+      const isHidden = d.style.display === "none";
+      d.style.display = isHidden ? "flex" : "none";
+      if (arrow) arrow.textContent = isHidden ? "▼" : "▶";
+    }}
+
+    // Toggle subsection (Tags, Process, Logs)
+    function toggleSubSection(id, titleEl) {{
+      const el = document.getElementById(id);
+      if (!el) return;
+      const isHidden = el.style.display === "none";
+      el.style.display = isHidden ? "" : "none";
+      const span = titleEl.querySelector("span");
+      if (span) {{
+        const text = span.textContent.replace(/^[▼▶]\s*/, "");
+        span.textContent = (isHidden ? "▼ " : "▶ ") + text;
+      }}
+    }}
+
+    // Expand all spans in a trace
+    function expandAllSpans(caseId) {{
+      const container = document.getElementById(`spans_container_${{caseId}}`);
+      if (!container) return;
+      container.querySelectorAll(".jaeger-detail-box").forEach(b => b.style.display = "flex");
+      container.querySelectorAll("[id^='arrow_']").forEach(a => a.textContent = "▼");
+    }}
+
+    // Collapse all spans in a trace
+    function collapseAllSpans(caseId) {{
+      const container = document.getElementById(`spans_container_${{caseId}}`);
+      if (!container) return;
+      container.querySelectorAll(".jaeger-detail-box").forEach(b => b.style.display = "none");
+      container.querySelectorAll("[id^='arrow_']").forEach(a => a.textContent = "▶");
+    }}
+
+    function toggleAllSpans(caseId) {{
+      const container = document.getElementById(`spans_container_${{caseId}}`);
+      if (!container) return;
+      const anyVisible = Array.from(container.querySelectorAll(".jaeger-detail-box")).some(b => b.style.display !== "none");
+      if (anyVisible) {{
+        collapseAllSpans(caseId);
+      }} else {{
+        expandAllSpans(caseId);
+      }}
+    }}
+
+    // Find / Filter spans within a trace
+    function findJaegerSpans(caseId, query) {{
+      const container = document.getElementById(`spans_container_${{caseId}}`);
+      if (!container) return;
+      const q = (query || "").trim().toLowerCase();
+      const wrappers = container.querySelectorAll(".jaeger-span-wrapper");
+      wrappers.forEach(w => {{
+        if (!q) {{
+          w.style.display = "";
+          w.style.opacity = "1";
+        }} else {{
+          const txt = w.textContent.toLowerCase();
+          if (txt.includes(q)) {{
+            w.style.display = "";
+            w.style.opacity = "1";
+          }} else {{
+            w.style.opacity = "0.2";
+          }}
+        }}
+      }});
+    }}
+
     // Toggle Waterfall Trace Drawer for a single case
     function toggleTraceRow(caseId, btnEl) {{
       const drawer = document.getElementById(`trace_drawer_${{caseId}}`);
@@ -1172,91 +1593,249 @@ class ReportGenerator:
         `;
         tbody.appendChild(tr);
 
-        // Build Trace Drawer Row (Micro Waterfall View)
+        // Build Trace Drawer Row (Pixel-grade Jaeger APM Timeline)
         const trDrawer = document.createElement("tr");
         trDrawer.className = "trace-drawer-tr";
         trDrawer.id = `trace_drawer_${{r.case_id}}`;
         trDrawer.style.display = "none";
 
         const chain = r.trace_chain || [];
-        const totDur = chain.length > 0 ? chain.reduce((acc, s) => acc + (s.duration_ms || 0), 0) : 1;
+        const rootSpan = chain.find(s => s.depth === 1) || chain[0] || {{}};
+        const totDur = Math.max(0.1, rootSpan.duration_ms || (chain.length > 0 ? chain.reduce((acc, s) => Math.max(acc, (s.start_ms || 0) + (s.duration_ms || 0)), 0) : 1));
+        const traceId = r.trace_id || rootSpan.span_id || `tr_${{r.case_id}}`;
+        const servicesSet = new Set(chain.map(s => s.service).filter(Boolean));
+        const serviceCount = Math.max(1, servicesSet.size);
 
-        // Build Waterfall Blocks
-        let blocksHtml = "";
-        let runningStart = 0;
-        chain.forEach((st) => {{
-          const stStart = st.start_ms !== undefined ? st.start_ms : runningStart;
-          const stDur = st.duration_ms || 1;
-          const leftPct = Math.min(96, Math.max(0, (stStart / Math.max(totDur, 0.1)) * 100));
-          const widthPct = Math.min(100 - leftPct, Math.max(4, (stDur / Math.max(totDur, 0.1)) * 100));
+        // 5-Tick Ruler Labels
+        const tick0 = formatJaegerDuration(0);
+        const tick25 = formatJaegerDuration(totDur * 0.25);
+        const tick50 = formatJaegerDuration(totDur * 0.50);
+        const tick75 = formatJaegerDuration(totDur * 0.75);
+        const tick100 = formatJaegerDuration(totDur);
 
-          let cls = "waterfall-primary";
-          if (st.stage_type === "classifier") cls = "waterfall-classifier";
-          else if (st.stage_type === "verifier") cls = "waterfall-verifier";
-          else if (st.stage_type === "escalate_model") cls = "waterfall-escalate";
-          else if (st.status === "error" || st.status === "timeout") cls = "waterfall-error";
+        // Minimap bars
+        let minimapBarsHtml = "";
+        chain.forEach((sp) => {{
+          const stStart = sp.start_ms || 0;
+          const stDur = sp.duration_ms || 0.1;
+          const leftPct = Math.min(98, Math.max(0, (stStart / totDur) * 100));
+          const widthPct = Math.min(100 - leftPct, Math.max(1, (stDur / totDur) * 100));
+          let bCls = "primary";
+          if (sp.stage_type === "classifier") bCls = "classifier";
+          else if (sp.stage_type === "escalate_model" || sp.status === "escalated" || sp.status === "escalate_recommended") bCls = "escalate";
+          else if (sp.status === "error" || sp.status === "timeout") bCls = "error";
 
-          blocksHtml += `
-            <div class="waterfall-block ${{cls}}" style="left: ${{leftPct.toFixed(1)}}%; width: ${{widthPct.toFixed(1)}}%;" title="${{st.name}}: +${{stDur}}ms (${{st.status}})">
-              ${{st.name}} (+${{stDur}}ms)
-            </div>
-          `;
-          runningStart += stDur;
+          minimapBarsHtml += `<div class="jaeger-minimap-bar ${{bCls}}" style="left: ${{leftPct.toFixed(1)}}%; width: ${{widthPct.toFixed(1)}}%;" title="${{sp.operation}}: +${{formatJaegerDuration(stDur)}}"></div>`;
         }});
 
-        // Build Step Cards
-        let cardsHtml = "";
-        chain.forEach((st, sIdx) => {{
-          const badgeClass = (st.status === "success" || st.status === "adequate") 
-            ? "background:#ecfdf5; color:#059669; border:1px solid #a7f3d0;" 
-            : (st.status === "escalate_recommended" || st.status === "unmet"
-              ? "background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe;"
-              : "background:#fef2f2; color:#b91c1c; border:1px solid #fecaca;");
+        // Spans List Rows & Detail Drawers
+        let spansListHtml = "";
+        chain.forEach((sp, sIdx) => {{
+          const stStart = sp.start_ms || 0;
+          const stDur = sp.duration_ms || 0.1;
+          const leftPct = Math.min(96, Math.max(0, (stStart / totDur) * 100));
+          const widthPct = Math.min(100 - leftPct, Math.max(2, (stDur / totDur) * 100));
 
-          const statusText = st.status === "adequate" ? "验收满意" 
-            : (st.status === "escalate_recommended" ? "判定升级" 
-            : (st.status === "success" ? "调用成功" 
-            : (st.status === "timeout" ? "超时重试" : (st.status === "error" ? "异常转接" : st.status))));
+          const isError = sp.status === "error" || sp.status === "timeout";
+          const isEscalate = sp.status === "escalated" || sp.status === "escalate_recommended" || sp.stage_type === "escalate_model";
+          
+          let colorClass = "svc-primary";
+          if (isError) colorClass = "svc-error";
+          else if (isEscalate) colorClass = "svc-escalate";
+          else if (sp.service === "amra") colorClass = "svc-amra";
+          else if (sp.service === "laya") colorClass = "svc-laya";
 
-          const tokStr = st.tokens ? `Tokens: ${{(st.tokens.prompt || 0) + (st.tokens.completion || 0)}} (In: ${{st.tokens.prompt || 0}}, Out: ${{st.tokens.completion || 0}})` : '';
+          const indentGuide = sp.depth === 2 ? `<span class="jaeger-indent-guide"></span>` : "";
+          const opLabel = sp.operation || sp.name || "operation";
+          const svcLabel = sp.service || "service";
+          const spanKey = `${{r.case_id}}_${{sp.span_id || sIdx}}`;
 
-          cardsHtml += `
-            <div class="trace-step-card">
-              <div class="trace-step-header">
-                <span>#${{sIdx + 1}} ${{st.name}}</span>
-                <span class="topo-badge" style="${{badgeClass}}">${{statusText}}</span>
+          // Format Tags Badges
+          const tags = sp.tags || {{}};
+          const tagBadges = Object.entries(tags).map(([k, v]) => `
+            <span class="jaeger-tag-badge">
+              <span class="jaeger-tag-key">${{k}} =</span>
+              <span class="jaeger-tag-val">${{v}}</span>
+            </span>
+          `).join("");
+
+          // Format Process Badges
+          const proc = sp.process || {{ "env": "benchmark", "runtime": "python3.11" }};
+          const procBadges = Object.entries(proc).map(([k, v]) => `
+            <span class="jaeger-tag-badge">
+              <span class="jaeger-tag-key">${{k}} =</span>
+              <span class="jaeger-tag-val">${{v}}</span>
+            </span>
+          `).join("");
+
+          // Format Logs
+          const logs = sp.logs || [];
+          let logsHtml = "";
+          if (logs.length > 0) {{
+            logsHtml = logs.map(l => `
+              <div class="jaeger-log-item">
+                <span class="jaeger-log-time">${{formatJaegerDuration(l.time_ms || 0)}}</span>
+                <span class="jaeger-log-event">${{l.event || 'event'}}:</span>
+                <span class="jaeger-log-payload">${{l.payload || l.message || ''}}</span>
               </div>
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
-                <span class="trace-step-dur">+${{st.duration_ms}} ms</span>
-                <span style="font-size:11px; color:var(--text-muted);">${{st.cost_usd > 0 ? '${{cur_sym}}' + st.cost_usd.toFixed(6) : (st.stage_type === 'classifier' ? '0成本前向' : '免费/零计费')}}</span>
+            `).join("");
+          }} else if (sp.snippet) {{
+            logsHtml = `
+              <div class="jaeger-log-item">
+                <span class="jaeger-log-time">${{formatJaegerDuration(stDur)}}</span>
+                <span class="jaeger-log-event">payload_snippet:</span>
+                <span class="jaeger-log-payload">${{sp.snippet}}</span>
               </div>
-              <div style="font-size:11.5px; color:var(--text-muted); margin-top:4px;">${{st.detail || ''}}</div>
-              ${{tokStr ? `<div style="font-size:11px; color:var(--text-dim);">${{tokStr}}</div>` : ''}}
-              ${{st.snippet ? `<div style="font-size:11px; background:#ffffff; border:1px solid #e2e8f0; border-radius:4px; padding:4px 8px; margin-top:4px; color:var(--text-main); max-height:48px; overflow:hidden; text-overflow:ellipsis;">${{st.snippet}}</div>` : ''}}
+            `;
+          }}
+
+          spansListHtml += `
+            <div class="jaeger-span-wrapper" id="span_wrap_${{spanKey}}">
+              <div class="jaeger-span-row" onclick="toggleJaegerSpanDetail('${{spanKey}}')">
+                <div class="jaeger-span-tree-cell">
+                  ${{indentGuide}}
+                  <span style="font-size: 10px; color: #94a3b8; margin-right: 2px;" id="arrow_${{spanKey}}">▼</span>
+                  <span class="jaeger-color-strip ${{colorClass}}"></span>
+                  <span class="jaeger-svc-label">${{svcLabel}}</span>
+                  <span class="jaeger-op-label">${{opLabel}}</span>
+                </div>
+                <div class="jaeger-span-timeline-cell">
+                  <div class="jaeger-bg-grid">
+                    <span class="jaeger-bg-grid-line"></span>
+                    <span class="jaeger-bg-grid-line"></span>
+                    <span class="jaeger-bg-grid-line"></span>
+                    <span class="jaeger-bg-grid-line"></span>
+                    <span class="jaeger-bg-grid-line"></span>
+                  </div>
+                  <div class="jaeger-bar-item ${{colorClass}}" style="left: ${{leftPct.toFixed(1)}}%; width: ${{widthPct.toFixed(1)}}%;">
+                    ${{widthPct > 15 ? formatJaegerDuration(stDur) : ''}}
+                    <span class="jaeger-bar-label-outside">${{widthPct <= 15 ? formatJaegerDuration(stDur) : ''}}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Span Detail Card (Expanded by default for Root or clicked) -->
+              <div class="jaeger-detail-box" id="detail_${{spanKey}}" style="${{sIdx === 0 ? '' : 'display: none;'}}">
+                <div class="jaeger-detail-header">
+                  <div class="jaeger-detail-title">
+                    <span class="jaeger-color-strip ${{colorClass}}"></span>
+                    <span>${{opLabel}}</span>
+                  </div>
+                  <div class="jaeger-detail-meta">
+                    <span>Service: <strong>${{svcLabel}}</strong></span>
+                    <span>Duration: <strong>${{formatJaegerDuration(stDur)}}</strong></span>
+                    <span>Start Time: <strong>${{formatJaegerDuration(stStart)}}</strong></span>
+                  </div>
+                </div>
+
+                <div class="jaeger-tags-group">
+                  <div class="jaeger-section-title" onclick="toggleSubSection('tags_${{spanKey}}', this)">
+                    <span>▼ Tags (${{Object.keys(tags).length}})</span>
+                  </div>
+                  <div class="jaeger-tags-grid" id="tags_${{spanKey}}">
+                    ${{tagBadges}}
+                  </div>
+                </div>
+
+                <div class="jaeger-tags-group">
+                  <div class="jaeger-section-title" onclick="toggleSubSection('proc_${{spanKey}}', this)">
+                    <span>▼ Process (${{Object.keys(proc).length}})</span>
+                  </div>
+                  <div class="jaeger-tags-grid" id="proc_${{spanKey}}">
+                    ${{procBadges}}
+                  </div>
+                </div>
+
+                ${{logsHtml ? `
+                <div class="jaeger-tags-group">
+                  <div class="jaeger-section-title" onclick="toggleSubSection('logs_${{spanKey}}', this)">
+                    <span>▼ Logs (${{logs.length || 1}})</span>
+                  </div>
+                  <div class="jaeger-logs-box" id="logs_${{spanKey}}">
+                    ${{logsHtml}}
+                  </div>
+                </div>
+                ` : ''}}
+
+                <div class="jaeger-span-footer">
+                  <span>SpanID: <strong style="font-family: var(--font-mono); color: #475569;">${{sp.span_id || 'span_' + sIdx}}</strong></span>
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"></path></svg>
+                </div>
+              </div>
             </div>
           `;
         }});
 
         trDrawer.innerHTML = `
           <td colspan="10" class="trace-drawer-content">
-            <div class="trace-waterfall-box">
-              <div class="waterfall-header">
-                <div>
-                  <span style="font-weight:700;">⏱️ 路由时序甘特瀑布流 (Timeline Waterfall)</span>
-                  <span style="font-size:11.5px; color:var(--text-muted); margin-left:8px;">[用例 ID: ${{r.case_id}}] 全程耗时: <strong>${{Math.round(totDur)}} ms</strong></span>
+            <div class="jaeger-container" id="jaeger_container_${{r.case_id}}">
+              <!-- Header Topbar -->
+              <div class="jaeger-topbar">
+                <div class="jaeger-title-group">
+                  <button type="button" class="jaeger-icon-btn" title="收起链路" onclick="toggleTraceRow('${{r.case_id}}', document.querySelector('#casesTable button[onclick*=\\'${{r.case_id}}\\''))">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                  </button>
+                  <button type="button" class="jaeger-icon-btn" onclick="toggleAllSpans('${{r.case_id}}')">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"></path></svg>
+                  </button>
+                  <span class="jaeger-service-name">${{rootSpan.operation || 'amra: /v1/chat/completions'}}</span>
+                  <span class="jaeger-trace-id" title="点击复制 Trace ID" onclick="navigator.clipboard.writeText('${{traceId}}')">${{traceId}}</span>
                 </div>
-                <div style="display:flex; gap:12px; font-size:11px;">
-                  <span><span style="display:inline-block;width:8px;height:8px;background:#0284c7;border-radius:2px;margin-right:4px;"></span>Laya决策</span>
-                  <span><span style="display:inline-block;width:8px;height:8px;background:#d97706;border-radius:2px;margin-right:4px;"></span>首选调用</span>
-                  <span><span style="display:inline-block;width:8px;height:8px;background:#7c3aed;border-radius:2px;margin-right:4px;"></span>质量验收</span>
-                  <span><span style="display:inline-block;width:8px;height:8px;background:#059669;border-radius:2px;margin-right:4px;"></span>升级/容灾</span>
+                <div class="jaeger-top-actions">
+                  <input type="text" class="jaeger-find-box" placeholder="Find in trace..." oninput="findJaegerSpans('${{r.case_id}}', this.value)">
+                  <div class="jaeger-view-badge">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h7"></path></svg>
+                    <span>Trace Timeline ▾</span>
+                  </div>
                 </div>
               </div>
-              <div class="waterfall-track">
-                ${{blocksHtml}}
+
+              <!-- Meta Stats Bar -->
+              <div class="jaeger-meta-bar">
+                <div class="jaeger-meta-item">Trace Start: <strong>00:00:00.000</strong></div>
+                <div class="jaeger-meta-item">Duration: <strong style="color: #00a396;">${{formatJaegerDuration(totDur)}}</strong></div>
+                <div class="jaeger-meta-item">Services: <strong>${{serviceCount}}</strong></div>
+                <div class="jaeger-meta-item">Depth: <strong>2</strong></div>
+                <div class="jaeger-meta-item">Total Spans: <strong>${{chain.length}}</strong></div>
               </div>
-              <div class="trace-steps-grid" style="margin-top:14px;">
-                ${{cardsHtml}}
+
+              <!-- Minimap Overview Timeline -->
+              <div class="jaeger-minimap">
+                <div class="jaeger-minimap-ruler">
+                  <span>${{tick0}}</span>
+                  <span>${{tick25}}</span>
+                  <span>${{tick50}}</span>
+                  <span>${{tick75}}</span>
+                  <span>${{tick100}}</span>
+                </div>
+                <div class="jaeger-minimap-track">
+                  ${{minimapBarsHtml}}
+                </div>
+              </div>
+
+              <!-- Split Grid Header -->
+              <div class="jaeger-grid-header">
+                <div class="jaeger-col-tree-head">
+                  <span>Service & Operation</span>
+                  <div style="display: flex; gap: 6px;">
+                    <span style="cursor: pointer;" title="全部展开" onclick="expandAllSpans('${{r.case_id}}')">∨</span>
+                    <span style="cursor: pointer;" title="全部收起" onclick="collapseAllSpans('${{r.case_id}}')">&gt;</span>
+                  </div>
+                </div>
+                <div class="jaeger-col-timeline-head">
+                  <div class="jaeger-ruler-ticks">
+                    <span>${{tick0}}</span>
+                    <span>${{tick25}}</span>
+                    <span>${{tick50}}</span>
+                    <span>${{tick75}}</span>
+                    <span>${{tick100}}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Spans Rows List -->
+              <div class="jaeger-spans-container" id="spans_container_${{r.case_id}}">
+                ${{spansListHtml}}
               </div>
             </div>
           </td>
