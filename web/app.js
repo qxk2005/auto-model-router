@@ -1661,7 +1661,6 @@ function onArenaManualSelectChanged() {
 let currentLbCategory = "overall";
 let isCandidateComparisonOnly = false;
 let lbSearchTimer = null;
-let cachedLeaderboardList = [];
 
 // ---------------------------------------------------------------------------
 // Leaderboard Pagination State & Controls
