@@ -88,11 +88,13 @@
       },
       "context_tokens": 32768,
       "tools": true,
-      "vision": false
+      "vision": false,
+      "timeout_seconds": 180
     }
   ],
   "policy": {
     "name": "B_naive",
+    "request_timeout_seconds": 60,
     "currency": {
       "base": "CNY",
       "usd_cny_rate": 6.8

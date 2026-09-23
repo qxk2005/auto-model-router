@@ -398,7 +398,12 @@ class BenchmarkEvaluator:
                                 "max_tokens": min(output_tokens, 150),
                                 "temperature": 0.7,
                             }
-                            res = await client.post(url, json=payload, headers=headers)
+                            req_timeout = float(
+                                getattr(chosen_model, "timeout_s", None)
+                                or (self.config_raw.get("policy", {}) or {}).get("request_timeout_seconds")
+                                or 60.0
+                            )
+                            res = await client.post(url, json=payload, headers=headers, timeout=req_timeout)
                             real_dur = time.perf_counter() - t_req_start
                             if res.status_code == 200:
                                 data = res.json()

@@ -414,8 +414,21 @@ async def probe_model_capability(req: ModelProbeRequest):
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    # 读取模型超时配置或使用默认 60s
+    model_timeout = 60.0
+    cfg = get_current_raw_config()
+    for m in cfg.get("models", []):
+        if (m.get("upstream_id") == req.upstream_id or m.get("name") == req.upstream_id) and m.get("timeout_seconds") is not None:
+            try:
+                model_timeout = float(m["timeout_seconds"])
+            except (ValueError, TypeError):
+                pass
+            break
+    if model_timeout < 10.0:
+        model_timeout = 60.0
+
     t0 = time.perf_counter()
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=model_timeout) as client:
         try:
             body = {
                 "model": req.upstream_id,
@@ -534,6 +547,19 @@ async def test_single_prompt(req: SingleTestRequest):
                 "expected_total_cost": getattr(c, "expected_total_cost", None),
             })
 
+    raw_cfg = get_current_raw_config()
+    global_timeout = float(raw_cfg.get("policy", {}).get("request_timeout_seconds") or 60.0)
+    chosen_timeout_val = getattr(chosen_model, "timeout_s", None)
+    if chosen_timeout_val is None:
+        for rm in raw_cfg.get("models", []):
+            if (rm.get("name") == chosen_name or rm.get("upstream_id") == upstream_id) and rm.get("timeout_seconds") is not None:
+                try:
+                    chosen_timeout_val = float(rm["timeout_seconds"])
+                except (ValueError, TypeError):
+                    pass
+                break
+    chosen_timeout = float(chosen_timeout_val or global_timeout)
+
     # 默认触发端到端真实生成，除非显式指定 predict_only
     if mode != "predict_only":
         mode = "end_to_end"
@@ -598,13 +624,27 @@ async def test_single_prompt(req: SingleTestRequest):
                 "max_tokens": max_tokens,
             }
 
+            # 读取当前模型专属超时时间，若未配置则继承全局策略默认超时
+            raw_cfg = get_current_raw_config()
+            global_timeout = float(raw_cfg.get("policy", {}).get("request_timeout_seconds") or 60.0)
+            model_timeout_s = getattr(cur_target, "timeout_s", None)
+            if model_timeout_s is None:
+                for rm in raw_cfg.get("models", []):
+                    if (rm.get("name") == cur_model_name or rm.get("upstream_id") == cur_upstream_id) and rm.get("timeout_seconds") is not None:
+                        try:
+                            model_timeout_s = float(rm["timeout_seconds"])
+                        except (ValueError, TypeError):
+                            pass
+                        break
+            effective_timeout = float(model_timeout_s or global_timeout)
+
             dispatch_label = f"首选模型" if is_first_attempt else f"自动降级备选模型 #{attempt_idx}"
-            add_log("INFO", f"[{dispatch_label}] 开始向上游端点发起调用: {base_url}/chat/completions (模型: {cur_upstream_id})", "upstream")
+            add_log("INFO", f"[{dispatch_label}] 开始向上游端点发起调用: {base_url}/chat/completions (模型: {cur_upstream_id}, 超时设定: {effective_timeout:.0f}s)", "upstream")
             t_up_0 = time.perf_counter()
             cur_up_ms = 0.0
 
             try:
-                async with httpx.AsyncClient(timeout=15.0) as client:
+                async with httpx.AsyncClient(timeout=effective_timeout) as client:
                     resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
                     cur_up_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
                     upstream_ms += cur_up_ms
@@ -637,6 +677,7 @@ async def test_single_prompt(req: SingleTestRequest):
                             "status": "success",
                             "http_status": 200,
                             "latency_ms": cur_up_ms,
+                            "timeout_seconds": effective_timeout,
                             "reply_snippet": full_display_output[:300] + ("..." if len(full_display_output) > 300 else ""),
                             "output": full_display_output,
                             "full_reply": full_display_output,
@@ -671,6 +712,7 @@ async def test_single_prompt(req: SingleTestRequest):
                             "status": "error",
                             "http_status": resp.status_code,
                             "latency_ms": cur_up_ms,
+                            "timeout_seconds": effective_timeout,
                             "output": f"上游接口异常: {err_detail}",
                             "error": err_detail,
                             "is_primary": is_first_attempt,
@@ -681,8 +723,8 @@ async def test_single_prompt(req: SingleTestRequest):
             except httpx.TimeoutException:
                 cur_up_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
                 upstream_ms += cur_up_ms
-                err_detail = f"上游端点 {base_url} 连接超时 (15s)"
-                add_log("WARN", f"模型 [{cur_model_name}] 请求超时 (耗时 {cur_up_ms}ms)", "upstream")
+                err_detail = f"上游端点 {base_url} 连接超时 ({effective_timeout:.0f}s)"
+                add_log("WARN", f"模型 [{cur_model_name}] 请求超时 (耗时 {cur_up_ms}ms, 限制 {effective_timeout:.0f}s)", "upstream")
                 dispatched_models.append({
                     "attempt": attempt_idx + 1,
                     "model_name": cur_model_name,
@@ -690,6 +732,7 @@ async def test_single_prompt(req: SingleTestRequest):
                     "upstream_id": cur_upstream_id,
                     "status": "error",
                     "latency_ms": cur_up_ms,
+                    "timeout_seconds": effective_timeout,
                     "output": f"连接超时: {err_detail}",
                     "error": err_detail,
                     "is_primary": is_first_attempt,
@@ -747,6 +790,7 @@ async def test_single_prompt(req: SingleTestRequest):
             "policy": route_res.explanation.selection.policy if (route_res.explanation and hasattr(route_res.explanation, 'selection')) else "F_expected",
             "reason": decision_reason,
             "candidates": candidates_data,
+            "timeout_seconds": chosen_timeout,
         },
         "dispatched_models": dispatched_models,
         "upstream_response": upstream_data,
