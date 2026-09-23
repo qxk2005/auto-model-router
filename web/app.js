@@ -1601,6 +1601,25 @@ let currentLbCategory = "overall";
 let isCandidateComparisonOnly = false;
 let lbSearchTimer = null;
 
+// Sub-feature tab switching inside Leaderboard page
+function switchLeaderboardSubtab(subtabKey) {
+  const btnTable = document.getElementById("btnSubnavLbTable");
+  const btnCompare = document.getElementById("btnSubnavLbCompare");
+  const paneTable = document.getElementById("subpaneLeaderboardTable");
+  const paneCompare = document.getElementById("subpaneLeaderboardCompare");
+
+  if (btnTable) btnTable.classList.toggle("active", subtabKey === "table");
+  if (btnCompare) btnCompare.classList.toggle("active", subtabKey === "compare");
+
+  if (paneTable) paneTable.style.display = subtabKey === "table" ? "block" : "none";
+  if (paneCompare) paneCompare.style.display = subtabKey === "compare" ? "block" : "none";
+}
+
+function toggleTableCandidateFilter(checked) {
+  isCandidateComparisonOnly = checked;
+  loadLeaderboardData();
+}
+
 async function loadLeaderboardData() {
   const searchInput = document.getElementById("lbSearchInput");
   const query = searchInput ? searchInput.value.trim() : "";
@@ -1619,6 +1638,11 @@ async function loadLeaderboardData() {
     if (syncTag && json.last_updated) {
       syncTag.textContent = `上次同步: ${json.last_updated}`;
     }
+
+    // Update subnav candidate counts
+    const count = (json.candidate_comparison || []).length;
+    const subnavBadge = document.getElementById("subnavCandidateCountBadge");
+    if (subnavBadge) subnavBadge.textContent = count;
 
     // Render candidate comparison cards
     renderCandidateComparisonCards(json.candidate_comparison || []);

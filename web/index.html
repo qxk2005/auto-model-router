@@ -494,93 +494,110 @@
 
       <!-- 5. 大模型权威评分查询 & 横向对比 (Leaderboard & Model Capability Benchmark) -->
       <div class="tab-pane" id="paneLeaderboard">
-        <!-- Header Banner & Action Bar -->
-        <div class="section-card" style="margin-bottom: 20px;">
-          <div class="card-header" style="flex-wrap: wrap; gap: 12px;">
-            <div>
-              <h3>🏆 LMSYS Chatbot Arena 权威大模型排行榜</h3>
-              <p>集成权威众包 Elo 评测基准数据，实时了解全球前沿模型在通用、编程、数理及复杂推理维度的权威战绩，并与当前路由候选模型无缝联动。</p>
-            </div>
-            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-              <span id="lbSyncTimeTag" style="font-size: 12px; color: var(--text-muted);">数据来源: Hugging Face</span>
-              <button class="btn btn-secondary btn-sm" id="btnSyncLeaderboard" onclick="triggerLeaderboardSync()">
-                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                <span id="btnSyncLbText">一键同步最新数据</span>
-              </button>
-            </div>
-          </div>
+        <!-- Sub-Feature Navigation (Sub-Tabs) -->
+        <div class="subnav-tabs">
+          <button class="subnav-btn active" id="btnSubnavLbTable" onclick="switchLeaderboardSubtab('table')">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+            <span>全量权威评测榜单 (Chatbot Arena)</span>
+          </button>
+          <button class="subnav-btn" id="btnSubnavLbCompare" onclick="switchLeaderboardSubtab('compare')">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+            <span>当前路由候选模型横向对比</span>
+            <span class="subnav-badge" id="subnavCandidateCountBadge">3</span>
+          </button>
+        </div>
 
-          <!-- Filter Toolbar -->
-          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-color);">
-            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-              <div style="position: relative; width: 260px;">
-                <input type="text" id="lbSearchInput" class="form-control form-control-sm" placeholder="搜索模型名称/机构/代号..." oninput="onLeaderboardSearchInput()">
+        <!-- Sub-Pane 1: Integrated Authoritative Leaderboard Table & Filter Toolbar -->
+        <div id="subpaneLeaderboardTable" class="subpane-content">
+          <div class="section-card integrated-table-card">
+            <!-- Card Header: Title + Source/Last Synced + Sync Action -->
+            <div class="card-header" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+              <div>
+                <h3>🏆 LMSYS Chatbot Arena 权威大模型排行榜</h3>
+                <p>集成权威众包双盲 Elo 评测基准，实时追踪全球前沿模型在通用问答、代码编程、数理推导及复杂推理维度的权威战绩。</p>
               </div>
-              <div class="btn-group" id="lbCategoryGroup">
-                <button class="btn btn-sm btn-secondary active" id="btnLbCatOverall" onclick="setLeaderboardCategory('overall')">综合全能</button>
-                <button class="btn btn-sm btn-secondary" id="btnLbCatCoding" onclick="setLeaderboardCategory('coding')">代码编程 (Coding)</button>
-                <button class="btn btn-sm btn-secondary" id="btnLbCatMath" onclick="setLeaderboardCategory('math')">数理推导 (Math)</button>
-                <button class="btn btn-sm btn-secondary" id="btnLbCatHard" onclick="setLeaderboardCategory('hard')">复杂推理 (Reasoning)</button>
+              <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <span id="lbSyncTimeTag" style="font-size: 12px; color: var(--text-muted); background: #f8fafc; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-color);">数据来源: Hugging Face</span>
+                <button class="btn btn-secondary btn-sm" id="btnSyncLeaderboard" onclick="triggerLeaderboardSync()">
+                  <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                  <span id="btnSyncLbText">一键同步最新数据</span>
+                </button>
               </div>
-              <label style="display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted); cursor: pointer; user-select: none;">
-                <input type="checkbox" id="chkLbOpenSource" onchange="onLeaderboardFilterChange()">
-                <span>仅看开源模型 (Open Source)</span>
-              </label>
             </div>
 
-            <!-- Key Feature: Toggle Cross-Comparison for Current Candidate Models -->
-            <div>
-              <button class="btn btn-sm" id="btnToggleCandidateComparison" onclick="toggleCandidateComparisonOnly()" style="background: #f0fdf4; border: 1px solid #86efac; color: #166534; font-weight: 600;">
-                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-right: 4px;"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-                <span id="btnCandidateComparisonText">仅横向对比当前路由候选模型</span>
-              </button>
+            <!-- Integrated Filter Toolbar (Seamlessly on top of table) -->
+            <div class="table-integrated-toolbar">
+              <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; flex: 1;">
+                <div style="position: relative; width: 260px;">
+                  <input type="text" id="lbSearchInput" class="form-control form-control-sm" placeholder="快速筛选模型名称/代号/机构..." oninput="onLeaderboardSearchInput()">
+                </div>
+                <div class="btn-group" id="lbCategoryGroup">
+                  <button class="btn btn-sm btn-secondary active" id="btnLbCatOverall" onclick="setLeaderboardCategory('overall')">综合全能</button>
+                  <button class="btn btn-sm btn-secondary" id="btnLbCatCoding" onclick="setLeaderboardCategory('coding')">代码编程 (Coding)</button>
+                  <button class="btn btn-sm btn-secondary" id="btnLbCatMath" onclick="setLeaderboardCategory('math')">数理推导 (Math)</button>
+                  <button class="btn btn-sm btn-secondary" id="btnLbCatHard" onclick="setLeaderboardCategory('hard')">复杂推理 (Reasoning)</button>
+                </div>
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted); cursor: pointer; user-select: none;">
+                  <input type="checkbox" id="chkLbOpenSource" onchange="onLeaderboardFilterChange()">
+                  <span>仅看开源模型 (Open Source)</span>
+                </label>
+              </div>
+              <div>
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #166534; font-weight: 600; cursor: pointer; user-select: none; background: #f0fdf4; padding: 4px 10px; border-radius: 6px; border: 1px solid #bbf7d0;">
+                  <input type="checkbox" id="chkFilterOnlyConfigured" onchange="toggleTableCandidateFilter(this.checked)">
+                  <span>仅看当前路由候选模型</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Data Table Body -->
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th style="width: 60px; text-align: center;">排名</th>
+                    <th>模型名称 (Model)</th>
+                    <th>研发机构 (Org)</th>
+                    <th style="text-align: right;">综合 Elo</th>
+                    <th style="text-align: right;">代码 Elo</th>
+                    <th style="text-align: right;">数理 Elo</th>
+                    <th style="text-align: right;">推理 Elo</th>
+                    <th>开源许可 (License)</th>
+                    <th>路由状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="leaderboardTableBody">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
 
-        <!-- Cross Comparison Cards Container (Shows configured candidate models side-by-side) -->
-        <div id="candidateComparisonSection" style="margin-bottom: 24px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 15px; font-weight: 700; color: var(--text-main);">📊 当前路由候选模型多维横向对比</span>
-              <span class="pill-candidate-badge" id="candidateCountBadge">3 个候选模型</span>
+        <!-- Sub-Pane 2: Dedicated Candidate Models Cross-Comparison -->
+        <div id="subpaneLeaderboardCompare" class="subpane-content" style="display: none;">
+          <!-- Header Meta & Quick Jump -->
+          <div class="section-card" style="margin-bottom: 20px;">
+            <div class="card-header" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+              <div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <h3>📊 当前路由候选模型多维横向对比矩阵</h3>
+                  <span class="pill-candidate-badge" id="candidateCountBadge">3 个候选模型</span>
+                </div>
+                <p style="margin-top: 4px;">深度对照当前所有路由候选模型的能力画像评分、Token 计费单价、锚定权威 Elo 分以及综合性价比指数，助您精准把控分流策略经济性。</p>
+              </div>
+              <div>
+                <button class="btn btn-secondary btn-sm" onclick="switchTab('models')">
+                  <span>⚙️ 管理与添加路由候选模型</span>
+                </button>
+              </div>
             </div>
-            <span style="font-size: 12px; color: var(--text-muted);">自动匹配权威 Arena 基准评分，综合评估每百万 Token 成本与性价比</span>
           </div>
 
+          <!-- Cross-Comparison Side-by-side Cards Grid -->
           <div class="candidate-cards-grid" id="candidateCardsGrid">
             <!-- Dynamically populated candidate model cards -->
-          </div>
-        </div>
-
-        <!-- Authoritative Leaderboard Table -->
-        <div class="section-card" id="lbTableCard">
-          <div class="card-header">
-            <div>
-              <h3>📋 全量权威评测排名榜单</h3>
-              <p id="lbTableMeta">展示 Chatbot Arena 权威模型测试得分（已匹配为当前路由候选模型的行将高亮显示）</p>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th style="width: 60px; text-align: center;">排名</th>
-                  <th>模型名称 (Model)</th>
-                  <th>研发机构 (Org)</th>
-                  <th style="text-align: right;">综合 Elo</th>
-                  <th style="text-align: right;">代码 Elo</th>
-                  <th style="text-align: right;">数理 Elo</th>
-                  <th style="text-align: right;">推理 Elo</th>
-                  <th>开源许可 (License)</th>
-                  <th>路由状态</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="leaderboardTableBody">
-                <!-- Dynamically populated -->
-              </tbody>
-            </table>
           </div>
         </div>
       </div>
