@@ -21,6 +21,11 @@ from typing import Any
 
 import httpx
 import torch
+try:
+    import dotenv
+    dotenv.load_dotenv()
+except ImportError:
+    pass
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
@@ -28,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import auto_router.server as ar_server
-from auto_router.config import for_http, load_config, save_config
+from auto_router.config import for_http, load_config, save_config, expand_env_vars
 from auto_router.jev import LocalLayaClassifier
 from auto_router.router import Router
 from evaluator import BenchmarkEvaluator, BenchmarkSummary
@@ -38,6 +43,7 @@ from leaderboard import leaderboard_mgr
 # Ensure logging is configured
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 log = logging.getLogger("auto_router.unified")
+logger = log
 
 # Set Hugging Face mirror by default for fast domestic downloads
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
@@ -282,7 +288,6 @@ class ProviderTestRequest(BaseModel):
 
 @app.post("/api/provider/test")
 async def test_provider_endpoint(req: ProviderTestRequest):
-    from auto_router.config import expand_env_vars
     base_url = (expand_env_vars(req.base_url) or req.base_url).rstrip("/")
     api_key = expand_env_vars(req.api_key) or req.api_key
     headers = {}
@@ -302,6 +307,7 @@ async def test_provider_endpoint(req: ProviderTestRequest):
                     "status": "ok",
                     "latency_ms": lat_ms,
                     "available_models": models_list,
+                    "resolved_base_url": base_url,
                     "message": f"连接成功！检测到 {len(models_list)} 个可用模型",
                 }
         except Exception:
@@ -321,6 +327,7 @@ async def test_provider_endpoint(req: ProviderTestRequest):
                     "status": "ok",
                     "latency_ms": lat_ms,
                     "available_models": [req.model or "default"],
+                    "resolved_base_url": base_url,
                     "message": "端点响应正常！",
                 }
             return {
@@ -341,45 +348,53 @@ class ProviderModelsRequest(BaseModel):
 @app.post("/api/provider/models")
 async def fetch_provider_models(req: ProviderModelsRequest):
     """Fetch complete list of available models from an OpenAI-compatible provider."""
-    base_url = (expand_env_vars(req.base_url) or req.base_url).rstrip("/")
-    api_key = expand_env_vars(req.api_key) or req.api_key
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
     t0 = time.perf_counter()
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            r = await client.get(f"{base_url}/models", headers=headers)
-            lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
-            if r.status_code == 200:
-                data = r.json()
-                raw_models = data.get("data", [])
-                models = []
-                for item in raw_models:
-                    if isinstance(item, dict) and "id" in item:
-                        models.append({
-                            "id": item["id"],
-                            "created": item.get("created"),
-                            "owned_by": item.get("owned_by", "system"),
-                        })
-                    elif isinstance(item, str):
-                        models.append({"id": item, "owned_by": "system"})
+    try:
+        base_url = (expand_env_vars(req.base_url) or req.base_url or "").rstrip("/")
+        api_key = expand_env_vars(req.api_key) or req.api_key
+        if not base_url:
+            return {"status": "error", "error": "缺少端点 Base URL"}
+
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                r = await client.get(f"{base_url}/models", headers=headers)
+                lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+                if r.status_code == 200:
+                    data = r.json()
+                    raw_models = data.get("data", [])
+                    models = []
+                    for item in raw_models:
+                        if isinstance(item, dict) and "id" in item:
+                            models.append({
+                                "id": item["id"],
+                                "created": item.get("created"),
+                                "owned_by": item.get("owned_by", "system"),
+                            })
+                        elif isinstance(item, str):
+                            models.append({"id": item, "owned_by": "system"})
+                    return {
+                        "status": "ok",
+                        "latency_ms": lat_ms,
+                        "count": len(models),
+                        "models": models,
+                        "resolved_base_url": base_url,
+                        "message": f"成功获取到 {len(models)} 个可用模型",
+                    }
                 return {
-                    "status": "ok",
+                    "status": "error",
                     "latency_ms": lat_ms,
-                    "count": len(models),
-                    "models": models,
-                    "message": f"成功获取到 {len(models)} 个可用模型",
+                    "error": f"上游接口返回 HTTP {r.status_code}: {r.text[:200]}",
                 }
-            return {
-                "status": "error",
-                "latency_ms": lat_ms,
-                "error": f"上游接口返回 HTTP {r.status_code}: {r.text[:200]}",
-            }
-        except Exception as exc:
-            lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
-            return {"status": "error", "latency_ms": lat_ms, "error": f"无法连接提供商端点: {exc}"}
+            except Exception as exc:
+                lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+                return {"status": "error", "latency_ms": lat_ms, "error": f"无法连接提供商端点 ({base_url}): {exc}"}
+    except Exception as exc:
+        log.error("遍历端点可用模型失败: %s", exc, exc_info=True)
+        return {"status": "error", "error": f"获取模型异常: {str(exc)}"}
 
 
 class ModelProbeRequest(BaseModel):

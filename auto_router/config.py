@@ -61,6 +61,11 @@ def expand_env_vars(text: str | None) -> str | None:
     """Expand ${VAR} and $VAR environment variable placeholders."""
     if not text or not isinstance(text, str):
         return text
+    try:
+        import dotenv
+        dotenv.load_dotenv()
+    except ImportError:
+        pass
     def _sub(match):
         var = match.group(1)
         default = match.group(3) if match.group(2) else ""
