@@ -578,43 +578,50 @@ async def run_benchmark(req: BenchmarkRunRequest):
         raise HTTPException(status_code=400, detail="没有可执行的测试用例")
 
     raw_cfg = get_current_raw_config()
-    evaluator = BenchmarkEvaluator(
-        router=ar_server.router,
-        catalog=ar_server.config.catalog,
-        policy_engine=ar_server.router.policy,
-        config_raw=raw_cfg,
-    )
+    try:
+        evaluator = BenchmarkEvaluator(
+            router=ar_server.router,
+            catalog=ar_server.config.catalog,
+            policy_engine=ar_server.router.policy,
+            config_raw=raw_cfg,
+        )
 
-    if req.mode == "real":
-        summary = await evaluator.run_real_benchmark(cases)
-    else:
-        loop = asyncio.get_event_loop()
-        summary = await loop.run_in_executor(None, evaluator.run_simulation, cases)
+        if req.mode == "real":
+            summary = await evaluator.run_real_benchmark(cases)
+        else:
+            loop = asyncio.get_event_loop()
+            summary = await loop.run_in_executor(None, evaluator.run_simulation, cases)
 
-    # Generate HTML report
-    reporter = ReportGenerator(output_dir="reports")
-    report_path = reporter.generate(summary)
-    report_filename = Path(report_path).name
+        # Generate HTML report
+        reporter = ReportGenerator(output_dir="reports")
+        report_path = reporter.generate(summary)
+        report_filename = Path(report_path).name
 
-    return {
-        "status": "completed",
-        "mode": summary.mode,
-        "summary": {
-            "timestamp": summary.timestamp,
-            "total_cases": summary.total_cases,
-            "total_tokens": summary.total_tokens,
-            "cost_router_total": summary.cost_router_total,
-            "cost_expensive_total": summary.cost_expensive_total,
-            "cost_cheap_total": summary.cost_cheap_total,
-            "total_savings_usd": summary.total_savings_usd,
-            "total_savings_pct": summary.total_savings_pct,
-            "avg_classifier_latency_ms": summary.avg_classifier_latency_ms,
-            "alignment_rate": summary.alignment_rate,
-            "model_distribution": summary.model_distribution,
-        },
-        "report_filename": report_filename,
-        "report_url": f"/api/reports/{report_filename}",
-    }
+        return {
+            "status": "completed",
+            "mode": summary.mode,
+            "summary": {
+                "timestamp": summary.timestamp,
+                "total_cases": summary.total_cases,
+                "total_tokens": summary.total_tokens,
+                "cost_router_total": summary.cost_router_total,
+                "cost_expensive_total": summary.cost_expensive_total,
+                "cost_cheap_total": summary.cost_cheap_total,
+                "total_savings_usd": summary.total_savings_usd,
+                "total_savings_pct": summary.total_savings_pct,
+                "avg_classifier_latency_ms": summary.avg_classifier_latency_ms,
+                "avg_total_latency_s": getattr(summary, "avg_total_latency_s", 0.0),
+                "alignment_rate": summary.alignment_rate,
+                "model_distribution": summary.model_distribution,
+                "currency_symbol": getattr(summary, "currency_symbol", "¥"),
+                "usd_cny_rate": getattr(summary, "usd_cny_rate", 7.20),
+            },
+            "report_filename": report_filename,
+            "report_url": f"/api/reports/{report_filename}",
+        }
+    except Exception as e:
+        logger.error(f"基准压测运行异常: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"压测运行异常: {str(e)}")
 
 
 # ---------------------------------------------------------------------------

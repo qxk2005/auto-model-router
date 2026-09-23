@@ -490,12 +490,13 @@ async function startBenchmark() {
       const data = await res.json();
       const s = data.summary;
 
+      const sym = s.currency_symbol || "¥";
       document.getElementById("latestResultCard").style.display = "block";
       document.getElementById("latestSummaryMeta").textContent = `完成时间: ${s.timestamp} | 模式: ${data.mode} | 测试集: ${s.total_cases} 条用例`;
       document.getElementById("resSavingsPct").textContent = `${s.total_savings_pct}%`;
-      document.getElementById("resSavingsUsd").textContent = `节省金额: $${s.total_savings_usd.toFixed(4)}`;
-      document.getElementById("resRouterCost").textContent = `$${s.cost_router_total.toFixed(4)}`;
-      document.getElementById("resExpensiveCost").textContent = `全量昂贵对比: $${s.cost_expensive_total.toFixed(4)}`;
+      document.getElementById("resSavingsUsd").textContent = `节省金额: ${sym}${s.total_savings_usd.toFixed(4)}`;
+      document.getElementById("resRouterCost").textContent = `${sym}${s.cost_router_total.toFixed(4)}`;
+      document.getElementById("resExpensiveCost").textContent = `全量昂贵对比: ${sym}${s.cost_expensive_total.toFixed(4)}`;
       document.getElementById("resLayaAvgLat").textContent = `${s.avg_classifier_latency_ms} ms`;
       document.getElementById("resAccuracy").textContent = `${s.alignment_rate}%`;
       document.getElementById("resTotalCases").textContent = `测试用例: ${s.total_cases} 条`;
@@ -508,8 +509,15 @@ async function startBenchmark() {
       showToast("综合评估测试完成！HTML 报告已生成。", "success");
       loadReportsList();
     } else {
-      const err = await res.json();
-      showToast(`测试失败: ${err.detail || '未知错误'}`, "danger");
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const err = await res.json();
+        errMsg = err.detail || err.message || errMsg;
+      } catch (_) {
+        const text = await res.text();
+        if (text) errMsg = text.slice(0, 200);
+      }
+      showToast(`测试失败: ${errMsg}`, "danger");
     }
   } catch (err) {
     showToast(`测试执行异常: ${err.message}`, "danger");
