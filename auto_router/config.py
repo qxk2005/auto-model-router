@@ -107,7 +107,14 @@ class RouterConfig:
 
 
 def _load_file(path: str | Path) -> dict:
-    text = Path(path).expanduser().read_text()
+    p = Path(path).expanduser()
+    try:
+        text = p.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            text = p.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            text = p.read_text(encoding="gbk", errors="replace")
     if str(path).endswith((".yaml", ".yml")):
         import yaml  # optional dependency, only needed for YAML configs
         return yaml.safe_load(text) or {}

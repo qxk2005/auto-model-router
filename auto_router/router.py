@@ -58,7 +58,7 @@ def success_model_from_config(policy: dict) -> SuccessModel:
                             if k in conf})
     table = conf.get("table")
     if table:
-        with open(os.path.expanduser(table)) as fh:
+        with open(os.path.expanduser(table), encoding="utf-8") as fh:
             model.measured = {(m, c, b): float(p) for m, c, b, p in json.load(fh)}
     return model
 

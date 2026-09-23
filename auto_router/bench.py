@@ -143,7 +143,7 @@ class BenchmarkClient:
     @staticmethod
     def _read(cached: Path) -> Any | None:
         try:
-            return json.loads(cached.read_text())
+            return json.loads(cached.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return None
 
