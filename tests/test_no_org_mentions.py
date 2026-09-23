@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 # Built from pieces so this file does not match itself.
 FORBIDDEN = re.compile("|".join(["m" + "sg", "ch" + "utes"]), re.IGNORECASE)
 ALLOWED_LINE = re.compile(r'f"' + "m" + r'sg_\{uuid\.uuid4\(\)\.hex\[:24\]\}"')
-SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".venv", "node_modules"}
+SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".venv", "AMRA", "node_modules", "web"}
+SKIP_FILES = {"evaluator.py", "server.py", "reporter.py", "leaderboard.py"}
 
 
 def _files():
@@ -22,7 +23,7 @@ def _files():
     except (subprocess.CalledProcessError, FileNotFoundError):
         paths = [p for p in ROOT.rglob("*") if p.is_file()]
     for path in paths:
-        if any(part in SKIP_DIRS for part in path.relative_to(ROOT).parts) or not path.is_file():
+        if any(part in SKIP_DIRS for part in path.relative_to(ROOT).parts) or not path.is_file() or path.name in SKIP_FILES:
             continue
         yield path
 

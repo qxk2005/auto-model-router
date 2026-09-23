@@ -25,11 +25,19 @@ def test_local_laya_maps_to_router_classification(monkeypatch):
             assert "request" in state and questions is jev.QUESTIONS
             return PAYLOAD
 
-    monkeypatch.setitem(sys.modules, "laya", types.SimpleNamespace(load=lambda model: Agent()))
-    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(set_num_threads=lambda n: None))
+    monkeypatch.setitem(sys.modules, "laya", types.SimpleNamespace(load=lambda model, **kwargs: Agent()))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        types.SimpleNamespace(
+            set_num_threads=lambda n: None,
+            backends=types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: False)),
+            cuda=types.SimpleNamespace(is_available=lambda: False),
+        ),
+    )
     result = jev.LocalLayaClassifier(threads=2)("write code")
     assert result.category == "coding" and result.difficulty == 0.5
-    assert result.source == "local-laya" and result.model == "laya-test"
+    assert result.source.startswith("local-laya") and result.model == "laya-test"
     assert result.input_tokens == 42 and result.output_tokens == 0
 
 

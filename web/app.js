@@ -342,7 +342,7 @@ async function runSingleTest() {
       body: JSON.stringify({
         prompt: prompt,
         mode: mode,
-        max_tokens: 128,
+        max_tokens: 1024,
       }),
     });
 
@@ -394,22 +394,62 @@ async function runSingleTest() {
       document.getElementById("barUpstream").style.width = `${Math.min(100, (upMs / tot) * 100)}%`;
       document.getElementById("barVerify").style.width = `${Math.min(100, (verMs / tot) * 100)}%`;
 
-      // 3. Upstream Output Snippet (if end-to-end)
-      const snippetCard = document.getElementById("endToEndSnippetCard");
-      if (isEndToEnd && data.upstream_response) {
-        snippetCard.style.display = "block";
-        const up = data.upstream_response;
-        if (up.status === "ok") {
-          document.getElementById("resTokensUsage").textContent = `首字/生成耗时: ${up.latency_ms}ms | Tokens: prompt=${up.usage?.prompt_tokens || 0}, comp=${up.usage?.completion_tokens || 0}`;
-          document.getElementById("resReplySnippet").style.color = "var(--text-main)";
-          document.getElementById("resReplySnippet").textContent = up.full_reply || up.reply_snippet || "（生成完成，无返回文本）";
-        } else {
-          document.getElementById("resTokensUsage").textContent = `状态: 异常 (耗时: ${up.latency_ms}ms)`;
-          document.getElementById("resReplySnippet").style.color = "var(--danger)";
-          document.getElementById("resReplySnippet").textContent = `[上游调用异常] ${up.error || '连接失败'}`;
+      // 3. Render Dispatched Models & Generation Outputs
+      const dispSection = document.getElementById("dispatchedModelsSection");
+      const dispList = document.getElementById("dispatchedModelsList");
+      const dispCountBadge = document.getElementById("badgeDispatchedCount");
+
+      const dispatched = data.dispatched_models || (data.upstream_response ? [data.upstream_response] : []);
+      if (isEndToEnd && dispatched.length > 0 && dispSection && dispList) {
+        dispSection.style.display = "block";
+        if (dispCountBadge) {
+          dispCountBadge.textContent = `${dispatched.length} 个模型已调度`;
         }
-      } else {
-        snippetCard.style.display = "none";
+        dispList.innerHTML = "";
+
+        dispatched.forEach((item, idx) => {
+          const card = document.createElement("div");
+          const isSuccess = item.status === "success";
+          card.className = `dispatched-model-card ${isSuccess ? 'status-success' : 'status-error'}`;
+
+          const roleTag = item.is_primary 
+            ? `<span class="dispatched-role-tag dispatched-role-primary">👑 路由首选模型</span>`
+            : `<span class="dispatched-role-tag dispatched-role-fallback">🔄 自动降级备选 (#${item.attempt || idx + 1})</span>`;
+
+          const statusBadge = isSuccess
+            ? `<span class="badge badge-success" style="font-size:11.5px; padding:3px 8px;">✓ 调度成功 (${item.latency_ms}ms)</span>`
+            : `<span class="badge badge-danger" style="font-size:11.5px; padding:3px 8px;">✗ 调度失败 (${item.latency_ms}ms)</span>`;
+
+          const tokensInfo = item.usage ? `Prompt: ${item.usage.prompt_tokens || 0} / Comp: ${item.usage.completion_tokens || 0}` : '';
+
+          card.innerHTML = `
+            <div class="dispatched-card-header">
+              <div class="dispatched-model-title">
+                ${roleTag}
+                <span class="dispatched-model-name">${escapeHtml(item.model_name || '--')}</span>
+                <span class="badge badge-subtle" style="font-size:11px;">提供商: ${escapeHtml(item.provider || '--')}</span>
+                ${tokensInfo ? `<span style="font-size:11.5px; color:var(--text-muted); margin-left:4px;">Tokens [${tokensInfo}]</span>` : ''}
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                ${statusBadge}
+                ${isSuccess ? `<button type="button" class="btn btn-outline btn-sm" onclick="copyModelOutput(${idx}, this)" style="padding: 2px 8px; font-size:11.5px;">📋 复制回答</button>` : ''}
+              </div>
+            </div>
+            <div class="dispatched-card-body">
+              ${isSuccess 
+                ? `<pre class="dispatched-output-content" id="outputContent_${idx}">${escapeHtml(item.output || item.full_reply || '（生成完成，无文本返回）')}</pre>`
+                : `<div class="dispatched-error-content">
+                    <strong>上游调用异常:</strong>
+                    <span>${escapeHtml(item.output || item.error || '请求失败')}</span>
+                    <span style="color:#b91c1c; font-size:11.5px; margin-top:2px;">⚠️ 系统已自动记录并尝试降级调度下一个可用模型</span>
+                   </div>`
+              }
+            </div>
+          `;
+          dispList.appendChild(card);
+        });
+      } else if (dispSection) {
+        dispSection.style.display = "none";
       }
 
       // 4. Execution Trace Console Logs
@@ -442,8 +482,28 @@ async function runSingleTest() {
     showToast(`测试出错: ${err.message}`, "danger");
   } finally {
     btn.disabled = false;
-    btn.innerHTML = `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg><span>立即预测路由决策</span>`;
+    btn.innerHTML = `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg><span>立即运行路由与模型生成</span>`;
   }
+}
+
+// Copy Model Output Text
+function copyModelOutput(idx, btnEl) {
+  const el = document.getElementById(`outputContent_${idx}`);
+  if (!el) return;
+  const text = el.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const originalText = btnEl.innerHTML;
+    btnEl.innerHTML = "✓ 已复制!";
+    btnEl.classList.add("btn-primary");
+    btnEl.classList.remove("btn-outline");
+    setTimeout(() => {
+      btnEl.innerHTML = originalText;
+      btnEl.classList.remove("btn-primary");
+      btnEl.classList.add("btn-outline");
+    }, 2000);
+  }).catch(err => {
+    showToast("复制失败: " + err, "danger");
+  });
 }
 
 // Copy Diagnostic JSON
