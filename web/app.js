@@ -11,10 +11,17 @@ let activeProbeModelIdx = null;
 // Initialize
 document.addEventListener("DOMContentLoaded", () => {
   initLeaderboardPagination();
+  initLeaderboardColumns();
   refreshStatus();
   loadConfig();
   loadReportsList();
   setInterval(refreshStatus, 15000);
+
+  // Close column picker on outside click
+  document.addEventListener("click", () => {
+    const dd = document.getElementById("lbColumnsDropdown");
+    if (dd) dd.style.display = "none";
+  });
 });
 
 // Toast notification helper
@@ -1663,6 +1670,214 @@ let isCandidateComparisonOnly = false;
 let lbSearchTimer = null;
 
 // ---------------------------------------------------------------------------
+// Leaderboard Multi-Subset Columns & Sorting State
+// ---------------------------------------------------------------------------
+const DEFAULT_VISIBLE_COLUMNS = ["text", "webdev", "math", "hard", "agent", "vision", "text_factuality"];
+let lbVisibleColumns = [];
+let lbSubsetsMeta = null;
+let lbCurrentSortCol = null;
+let lbCurrentSortOrder = "desc";
+
+function initLeaderboardColumns() {
+  const saved = localStorage.getItem("amra_lb_visible_columns");
+  if (saved) {
+    try {
+      const arr = JSON.parse(saved);
+      if (Array.isArray(arr) && arr.length > 0) {
+        lbVisibleColumns = arr;
+      } else {
+        lbVisibleColumns = [...DEFAULT_VISIBLE_COLUMNS];
+      }
+    } catch (e) {
+      lbVisibleColumns = [...DEFAULT_VISIBLE_COLUMNS];
+    }
+  } else {
+    lbVisibleColumns = [...DEFAULT_VISIBLE_COLUMNS];
+  }
+  updateSelectedColCountBadge();
+}
+
+function updateSelectedColCountBadge() {
+  const badge = document.getElementById("selectedColCountBadge");
+  if (badge) {
+    badge.textContent = lbVisibleColumns.length;
+  }
+}
+
+function toggleColumnPickerDropdown(event) {
+  if (event) event.stopPropagation();
+  const dd = document.getElementById("lbColumnsDropdown");
+  if (!dd) return;
+  const isHidden = (dd.style.display === "none" || !dd.style.display);
+  dd.style.display = isHidden ? "flex" : "none";
+}
+
+function renderColumnPicker(meta) {
+  if (!meta || !meta.categories) return;
+  lbSubsetsMeta = meta;
+  const container = document.getElementById("colPickerGroupsContainer");
+  if (!container) return;
+
+  container.innerHTML = "";
+  meta.categories.forEach(cat => {
+    const groupDiv = document.createElement("div");
+    groupDiv.className = "col-picker-group";
+
+    const titleDiv = document.createElement("div");
+    titleDiv.className = "col-group-title";
+    titleDiv.innerHTML = `<span>${cat.name}</span><span style="font-size:10px; color:var(--text-muted); font-weight:400;">(${cat.subsets.length})</span>`;
+    groupDiv.appendChild(titleDiv);
+
+    const itemsDiv = document.createElement("div");
+    itemsDiv.className = "col-picker-items";
+
+    cat.subsets.forEach(sub => {
+      const label = document.createElement("label");
+      label.className = "col-picker-item";
+      const isChecked = lbVisibleColumns.includes(sub.key);
+      label.innerHTML = `
+        <input type="checkbox" value="${sub.key}" ${isChecked ? "checked" : ""} onchange="onColumnCheckboxChange('${sub.key}', this.checked)">
+        <span title="${sub.label}">${sub.icon || "📊"} ${sub.label}</span>
+      `;
+      itemsDiv.appendChild(label);
+    });
+
+    groupDiv.appendChild(itemsDiv);
+    container.appendChild(groupDiv);
+  });
+}
+
+function onColumnCheckboxChange(colKey, isChecked) {
+  if (isChecked) {
+    if (!lbVisibleColumns.includes(colKey)) {
+      lbVisibleColumns.push(colKey);
+    }
+  } else {
+    if (lbVisibleColumns.length <= 1) {
+      showToast("至少需保留一个显示列", "warning");
+      const chk = document.querySelector(`.col-picker-item input[value="${colKey}"]`);
+      if (chk) chk.checked = true;
+      return;
+    }
+    lbVisibleColumns = lbVisibleColumns.filter(k => k !== colKey);
+  }
+  localStorage.setItem("amra_lb_visible_columns", JSON.stringify(lbVisibleColumns));
+  updateSelectedColCountBadge();
+  renderLeaderboardTableHeader();
+  renderLeaderboardTable(cachedLeaderboardList);
+}
+
+function resetDefaultColumns() {
+  lbVisibleColumns = [...DEFAULT_VISIBLE_COLUMNS];
+  localStorage.setItem("amra_lb_visible_columns", JSON.stringify(lbVisibleColumns));
+  updateSelectedColCountBadge();
+  if (lbSubsetsMeta) {
+    renderColumnPicker(lbSubsetsMeta);
+  }
+  renderLeaderboardTableHeader();
+  renderLeaderboardTable(cachedLeaderboardList);
+  showToast("已恢复默认显示列 (6项核心维度)", "info");
+}
+
+function sortLeaderboardByColumn(colKey) {
+  if (lbCurrentSortCol === colKey) {
+    lbCurrentSortOrder = (lbCurrentSortOrder === "desc" ? "asc" : "desc");
+  } else {
+    lbCurrentSortCol = colKey;
+    lbCurrentSortOrder = "desc";
+  }
+
+  lbCurrentPage = 1;
+
+  cachedLeaderboardList.sort((a, b) => {
+    let valA = 0.0;
+    let valB = 0.0;
+
+    if (a.subsets && a.subsets[colKey]) {
+      valA = parseFloat(a.subsets[colKey].elo) || 0.0;
+    } else if (a[colKey] !== undefined) {
+      valA = parseFloat(a[colKey]) || 0.0;
+    }
+
+    if (b.subsets && b.subsets[colKey]) {
+      valB = parseFloat(b.subsets[colKey].elo) || 0.0;
+    } else if (b[colKey] !== undefined) {
+      valB = parseFloat(b[colKey]) || 0.0;
+    }
+
+    return lbCurrentSortOrder === "asc" ? (valA - valB) : (valB - valA);
+  });
+
+  renderLeaderboardTableHeader();
+  renderLeaderboardTable(cachedLeaderboardList);
+}
+
+function renderLeaderboardTableHeader() {
+  const thead = document.getElementById("leaderboardTableHeader");
+  if (!thead) return;
+
+  const reg = (lbSubsetsMeta && lbSubsetsMeta.registry) ? lbSubsetsMeta.registry : {};
+
+  let colsHtml = `
+    <tr>
+      <th style="width: 60px; text-align: center;">排名</th>
+      <th style="min-width: 170px;">模型名称 (Model)</th>
+      <th style="min-width: 100px;">研发机构 (Org)</th>
+  `;
+
+  lbVisibleColumns.forEach(colKey => {
+    const meta = reg[colKey] || { label: colKey, icon: "📊" };
+    const isSorted = (lbCurrentSortCol === colKey);
+    const arrow = isSorted ? (lbCurrentSortOrder === "asc" ? "▲" : "▼") : "↕";
+    colsHtml += `
+      <th class="sortable-th ${isSorted ? "sorted" : ""}" style="text-align: right; min-width: 110px;" onclick="sortLeaderboardByColumn('${colKey}')" title="点击按此列${isSorted && lbCurrentSortOrder === 'desc' ? '升序' : '降序'}排序">
+        <span>${meta.icon || ''} ${meta.label}</span>
+        <span class="sort-indicator">${arrow}</span>
+      </th>
+    `;
+  });
+
+  colsHtml += `
+      <th style="min-width: 95px;">开源许可</th>
+      <th style="min-width: 80px;">路由状态</th>
+      <th style="min-width: 85px;">操作</th>
+    </tr>
+  `;
+
+  thead.innerHTML = colsHtml;
+}
+
+function getColumnColorStyle(colKey) {
+  const colorMap = {
+    text: "color: #0f172a; font-weight: 700;",
+    webdev: "color: #0284c7; font-weight: 700;",
+    math: "color: #8b5cf6; font-weight: 700;",
+    hard: "color: #059669; font-weight: 700;",
+    agent: "color: #d97706; font-weight: 700;",
+    agent_tool_hallucination: "color: #b45309; font-weight: 700;",
+    agent_bash_recovery_steps: "color: #ea580c; font-weight: 700;",
+    agent_steerability: "color: #ca8a04; font-weight: 700;",
+    agent_task_outcome_explicit: "color: #16a34a; font-weight: 700;",
+    agent_praise_complaint: "color: #0d9488; font-weight: 700;",
+    vision: "color: #0891b2; font-weight: 700;",
+    document: "color: #4f46e5; font-weight: 700;",
+    search: "color: #2563eb; font-weight: 700;",
+    text_factuality: "color: #15803d; font-weight: 700;",
+    search_factuality: "color: #047857; font-weight: 700;",
+    text_style_control: "color: #7c3aed; font-weight: 700;",
+    document_style_control: "color: #9333ea; font-weight: 700;",
+    search_style_control: "color: #c026d3; font-weight: 700;",
+    vision_style_control: "color: #db2777; font-weight: 700;",
+    image_edit: "color: #e11d48; font-weight: 700;",
+    image_to_video: "color: #be123c; font-weight: 700;",
+    text_to_image: "color: #e11d48; font-weight: 700;",
+    text_to_video: "color: #9f1239; font-weight: 700;",
+    video_edit: "color: #881337; font-weight: 700;",
+  };
+  return colorMap[colKey] || "color: var(--text-main); font-weight: 700;";
+}
+
+// ---------------------------------------------------------------------------
 // Leaderboard Pagination State & Controls
 // ---------------------------------------------------------------------------
 let lbCurrentPage = 1;
@@ -1821,13 +2036,23 @@ async function loadLeaderboardData() {
   const query = searchInput ? searchInput.value.trim() : "";
   const isOnlyOpen = document.getElementById("chkLbOpenSource")?.checked || false;
 
-  const url = `/api/leaderboard?search=${encodeURIComponent(query)}&category=${currentLbCategory}&open_source_only=${isOnlyOpen}&candidate_only=${isCandidateComparisonOnly}`;
+  let url = `/api/leaderboard?search=${encodeURIComponent(query)}&open_source_only=${isOnlyOpen}&candidate_only=${isCandidateComparisonOnly}`;
+  if (lbCurrentSortCol) {
+    url += `&sort_col=${encodeURIComponent(lbCurrentSortCol)}&sort_order=${lbCurrentSortOrder}`;
+  } else if (currentLbCategory) {
+    url += `&category=${currentLbCategory}`;
+  }
 
   try {
     const res = await fetch(url);
     if (!res.ok) return;
     const json = await res.json();
     cachedLeaderboardList = json.data || [];
+
+    if (json.subsets_meta) {
+      renderColumnPicker(json.subsets_meta);
+      renderLeaderboardTableHeader();
+    }
 
     // Update sync tag
     const syncTag = document.getElementById("lbSyncTimeTag");
@@ -1843,7 +2068,7 @@ async function loadLeaderboardData() {
     // Render candidate comparison cards
     renderCandidateComparisonCards(json.candidate_comparison || []);
 
-    // Render leaderboard table with pagination
+    // Render leaderboard table with dynamic columns & pagination
     renderLeaderboardTable(cachedLeaderboardList);
   } catch (err) {
     console.error("Failed to load leaderboard data:", err);
@@ -1954,14 +2179,18 @@ function renderLeaderboardTable(models) {
 
   renderLeaderboardPagination(models.length);
 
+  const totalCols = 3 + lbVisibleColumns.length + 3;
+
   if (models.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 30px;">未检索到符合条件的评测大模型</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${totalCols}" style="text-align: center; color: var(--text-muted); padding: 30px;">未检索到符合条件的评测大模型</td></tr>`;
     return;
   }
 
   const startIndex = (lbCurrentPage - 1) * lbPageSize;
   const endIndex = Math.min(startIndex + lbPageSize, models.length);
   const pageModels = models.slice(startIndex, endIndex);
+
+  const reg = (lbSubsetsMeta && lbSubsetsMeta.registry) ? lbSubsetsMeta.registry : {};
 
   tbody.innerHTML = "";
   pageModels.forEach((m, idx) => {
@@ -1973,6 +2202,48 @@ function renderLeaderboardTable(models) {
 
     const rankDisplay = startIndex + idx + 1;
     const rankBadgeClass = rankDisplay === 1 ? 'color: #eab308; font-weight:800;' : (rankDisplay <= 3 ? 'color: #0284c7; font-weight:700;' : 'color: var(--text-muted);');
+
+    let rowScoresHtml = "";
+    lbVisibleColumns.forEach(colKey => {
+      const sub = (m.subsets && m.subsets[colKey]) ? m.subsets[colKey] : null;
+      let eloVal = 1200.0;
+      let rawScore = null;
+      let obsCount = null;
+      let subRank = null;
+
+      if (sub) {
+        eloVal = sub.elo || 1200.0;
+        rawScore = sub.raw_score;
+        obsCount = sub.obs_count;
+        subRank = sub.rank;
+      } else {
+        if (colKey === "text") eloVal = m.rating_overall || 1200;
+        else if (colKey === "webdev") eloVal = m.rating_coding || m.rating_overall || 1200;
+        else if (colKey === "math") eloVal = m.rating_math || m.rating_overall || 1200;
+        else if (colKey === "hard") eloVal = m.rating_hard || m.rating_overall || 1200;
+        else eloVal = m.rating_overall || 1200;
+      }
+
+      const meta = reg[colKey] || { label: colKey };
+      let tooltip = `子项: ${meta.label}\n等价 Elo: ${Math.round(eloVal)}`;
+      if (rawScore !== null && rawScore !== undefined) {
+        tooltip += `\n原始得分: ${rawScore > 0 ? '+' : ''}${rawScore}`;
+      }
+      if (obsCount) {
+        tooltip += `\n样本量: ${obsCount.toLocaleString()} 条`;
+      }
+      if (subRank && subRank < 999) {
+        tooltip += `\n专项排名: #${subRank}`;
+      }
+
+      rowScoresHtml += `
+        <td style="text-align: right;">
+          <span class="elo-score-cell" style="${getColumnColorStyle(colKey)}" data-tooltip="${tooltip}">
+            ${Math.round(eloVal)}
+          </span>
+        </td>
+      `;
+    });
 
     tr.innerHTML = `
       <td style="text-align: center; ${rankBadgeClass} font-family: var(--font-mono);">
@@ -1986,10 +2257,7 @@ function renderLeaderboardTable(models) {
         <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${m.model_name}</span>
       </td>
       <td><span style="font-size: 12.5px;">${m.organization || 'OpenAI'}</span></td>
-      <td style="text-align: right; font-weight: 700; color: #0f172a; font-family: var(--font-mono);">${Math.round(m.rating_overall || 1200)}</td>
-      <td style="text-align: right; font-family: var(--font-mono); color: #0284c7;">${Math.round(m.rating_coding || m.rating_overall || 1200)}</td>
-      <td style="text-align: right; font-family: var(--font-mono); color: #8b5cf6;">${Math.round(m.rating_math || m.rating_overall || 1200)}</td>
-      <td style="text-align: right; font-family: var(--font-mono); color: #059669;">${Math.round(m.rating_hard || m.rating_overall || 1200)}</td>
+      ${rowScoresHtml}
       <td>
         <span class="arena-license-tag ${m.license && !['proprietary','closed'].includes(m.license.toLowerCase()) ? 'open' : ''}">
           ${m.license || 'Proprietary'}
@@ -2010,6 +2278,7 @@ function renderLeaderboardTable(models) {
 
 function setLeaderboardCategory(cat) {
   currentLbCategory = cat;
+  lbCurrentSortCol = null; // 重置列头独立排序
   lbCurrentPage = 1;
   const btns = {
     overall: document.getElementById("btnLbCatOverall"),
