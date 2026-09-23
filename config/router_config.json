@@ -90,7 +90,7 @@
     }
   ],
   "policy": {
-    "name": "F_expected",
+    "name": "B_naive",
     "currency": {
       "base": "CNY",
       "usd_cny_rate": 6.8
