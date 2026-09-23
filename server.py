@@ -270,10 +270,11 @@ class ProviderModelsRequest(BaseModel):
 @app.post("/api/provider/models")
 async def fetch_provider_models(req: ProviderModelsRequest):
     """Fetch complete list of available models from an OpenAI-compatible provider."""
-    base_url = req.base_url.rstrip("/")
+    base_url = (expand_env_vars(req.base_url) or req.base_url).rstrip("/")
+    api_key = expand_env_vars(req.api_key) or req.api_key
     headers = {}
-    if req.api_key:
-        headers["Authorization"] = f"Bearer {req.api_key}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     t0 = time.perf_counter()
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -330,6 +331,9 @@ async def probe_model_capability(req: ModelProbeRequest):
         if prov_info:
             base_url = prov_info.get("base_url")
             api_key = prov_info.get("api_key")
+
+    base_url = expand_env_vars(base_url) or base_url
+    api_key = expand_env_vars(api_key) or api_key
 
     if not base_url:
         raise HTTPException(status_code=400, detail="缺少上游端点 base_url 或有效的 provider_id")
@@ -509,7 +513,7 @@ async def test_single_prompt(req: SingleTestRequest):
                 })
                 continue
 
-            base_url = cur_provider.base_url.rstrip("/")
+            base_url = (cur_provider.resolved_base_url or cur_provider.base_url).rstrip("/")
             headers = {"Content-Type": "application/json"}
             api_key = cur_provider.api_key
             if api_key and api_key != "none":

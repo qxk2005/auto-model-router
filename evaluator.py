@@ -363,7 +363,7 @@ class BenchmarkEvaluator:
 
                 async with sem:
                     if provider and provider.base_url:
-                        base_url = (provider.base_url or "").strip().rstrip("/")
+                        base_url = (getattr(provider, "resolved_base_url", None) or provider.base_url or "").strip().rstrip("/")
                         url = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
                         t_req_start = time.perf_counter()
                         try:
