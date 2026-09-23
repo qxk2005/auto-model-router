@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto-LLM-Router 控制台 | Laya on Apple M4 Max</title>
+  <link rel="stylesheet" href="/web/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h2>AutoRouter</h2>
+          <span class="version-tag">Laya M4-Max</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" id="navMonitor" onclick="switchTab('monitor')">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+          <span>网关状态与实时监控</span>
+        </button>
+        <button class="nav-item" id="navModels" onclick="switchTab('models')">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+          <span>提供商与模型管理</span>
+        </button>
+        <button class="nav-item" id="navPolicy" onclick="switchTab('policy')">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+          <span>Router 策略与 Laya 参数</span>
+        </button>
+        <button class="nav-item" id="navBenchmark" onclick="switchTab('benchmark')">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+          <span>测试中心与评估报告</span>
+        </button>
+      </nav>
+
+      <!-- System Pill -->
+      <div class="sidebar-status">
+        <div class="status-indicator">
+          <span class="pulsing-dot"></span>
+          <span id="hardwareName">M4 Max (MPS)</span>
+        </div>
+        <div class="sidebar-meta" id="sidebarMeta">
+          <span>内存: -- MB</span>
+          <span>运行: --s</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Top Navigation Bar -->
+      <header class="topbar">
+        <div class="page-title">
+          <h1 id="pageTitleText">网关状态与实时监控</h1>
+          <p id="pageSubtitleText">监测 Apple Silicon 本地 Laya 决策引擎与网关实时运行指标</p>
+        </div>
+        <div class="topbar-actions">
+          <div class="endpoint-pill">
+            <span class="pill-label">代理端点</span>
+            <code id="gatewayUrl">http://localhost:8765/v1</code>
+          </div>
+          <button class="btn btn-secondary" onclick="refreshStatus()">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            <span>刷新</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- TAB 1: Gateway Monitor -->
+      <div class="tab-pane active" id="paneMonitor">
+        <!-- KPI Cards -->
+        <div class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-title">
+              <span>Laya 决策延迟 (M4 Max)</span>
+              <span class="kpi-badge badge-green">MPS 加速</span>
+            </div>
+            <div class="kpi-num" id="kpiLayaLatency">~50 <span class="unit">ms</span></div>
+            <div class="kpi-desc">单次非自回归前向极速反射分类</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-title">
+              <span>当前生效策略</span>
+              <span class="kpi-badge badge-blue">Policy</span>
+            </div>
+            <div class="kpi-num" id="kpiActivePolicy">F_expected</div>
+            <div class="kpi-desc">期望成本最小化 (含失败风险折算)</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-title">
+              <span>模型提供商矩阵</span>
+              <span class="kpi-badge badge-purple">Providers</span>
+            </div>
+            <div class="kpi-num" id="kpiProvidersCount">4 <span class="unit">个服务商</span></div>
+            <div class="kpi-desc">含本地 LM Studio 零成本端点</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-title">
+              <span>可用模型数量</span>
+              <span class="kpi-badge badge-cyan">Models</span>
+            </div>
+            <div class="kpi-num" id="kpiModelsCount">3 <span class="unit">个路由模型</span></div>
+            <div class="kpi-desc">涵盖强力旗舰 / 性价比 / 本地轻量</div>
+          </div>
+        </div>
+
+        <!-- Realtime Interactive Prompt Tester -->
+        <div class="section-card">
+          <div class="card-header">
+            <div>
+              <h3>⚡ 单次提示词路由反射测试 (Live Tester)</h3>
+              <p>输入任意中英文提示词，直接调用本地 M4 Max 上的 Laya 引擎进行亚秒级分类与模型分配</p>
+            </div>
+          </div>
+          <div class="test-box">
+            <textarea id="testPromptInput" placeholder="输入测试提示词，例如：'写一个Python快速排序算法' 或 '帮我算一下每月房贷利息'..."></textarea>
+            <div class="test-controls">
+              <div class="quick-tags">
+                <span class="quick-chip" onclick="setQuickPrompt('帮我写一个Python函数判断回文数')">简单代码</span>
+                <span class="quick-chip" onclick="setQuickPrompt('求解Black-Scholes期权定价偏微分方程的闭式解推导')">复杂数理</span>
+                <span class="quick-chip" onclick="setQuickPrompt('早上好，今天周五心情不错！')">日常闲聊</span>
+                <span class="quick-chip" onclick="setQuickPrompt('分析Linux内核在x86架构下的缺页异常COW中断处理全链路')">高深理论</span>
+              </div>
+              <button class="btn btn-primary" id="btnTestRoute" onclick="runSingleTest()">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                <span>立即预测路由决策</span>
+              </button>
+            </div>
+
+            <!-- Single Test Result Box -->
+            <div class="result-box" id="singleTestResult" style="display: none;">
+              <div class="result-grid">
+                <div class="result-item">
+                  <span class="r-label">识别类别 (Category)</span>
+                  <span class="r-val" id="resCategory">--</span>
+                </div>
+                <div class="result-item">
+                  <span class="r-label">难度评分 (Difficulty)</span>
+                  <span class="r-val" id="resDifficulty">--</span>
+                </div>
+                <div class="result-item">
+                  <span class="r-label">错误风险代价 (Stakes)</span>
+                  <span class="r-val" id="resStakes">--</span>
+                </div>
+                <div class="result-item">
+                  <span class="r-label">Laya 耗时 (MPS Latency)</span>
+                  <span class="r-val highlight-green" id="resLatency">-- ms</span>
+                </div>
+                <div class="result-item full-width">
+                  <span class="r-label">选定分配模型 (Target Route)</span>
+                  <span class="r-val highlight-blue" id="resChosenModel">--</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: Providers & Models -->
+      <div class="tab-pane" id="paneModels">
+        <!-- Providers Section -->
+        <div class="section-card">
+          <div class="card-header">
+            <div>
+              <h3>端点提供商矩阵 (OpenAI-Compatible Providers)</h3>
+              <p>配置后端模型提供商，原生支持本地 LM Studio (`http://localhost:1234/v1`) 及云端各厂商</p>
+            </div>
+            <button class="btn btn-primary" onclick="openAddProviderModal()">
+              <span>+ 添加提供商</span>
+            </button>
+          </div>
+          <div class="providers-grid" id="providersList">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Models Catalog Section -->
+        <div class="section-card">
+          <div class="card-header">
+            <div>
+              <h3>路由模型目录与计费单价 (Models Catalog & Pricing)</h3>
+              <p>设置各模型的输入/输出/缓存单价（人民币 ¥ / 1M Tokens，按全局汇率自动同步换算美元 $）及上下文，供 Router 经济模型评估</p>
+            </div>
+            <button class="btn btn-primary" onclick="openAddModelModal()">
+              <span>+ 添加模型</span>
+            </button>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>模型代号</th>
+                  <th>提供商</th>
+                  <th>上游 Model ID</th>
+                  <th>免费/零成本</th>
+                  <th>输入单价 (¥/1M)</th>
+                  <th>输出单价 (¥/1M)</th>
+                  <th>缓存命中单价 (¥/1M)</th>
+                  <th>上下文窗口</th>
+                  <th>可用性与能力探测</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="modelsTableBody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: Policy & Laya Tuning -->
+      <div class="tab-pane" id="panePolicy">
+        <div class="section-card">
+          <div class="card-header">
+            <div>
+              <h3>Router 路由策略与超参数设置</h3>
+              <p>调整 auto-model-router 决策算法的风险惩罚、缓存折算与评判门槛</p>
+            </div>
+            <button class="btn btn-primary" onclick="savePolicyConfig()">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+              <span>保存策略参数</span>
+            </button>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="usdCnyRateInput">基准换算汇率 (1 USD = ? CNY)</label>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="number" step="0.01" min="0.1" id="usdCnyRateInput" class="form-control" value="7.20" oninput="onUsdRateChanged()">
+                <span style="font-size: 13px; color: var(--text-muted); font-weight: 600; white-space: nowrap;">¥ / $</span>
+              </div>
+              <small class="form-hint">用于单价的人民币与美元双币种实时折算及报告统计</small>
+            </div>
+
+            <div class="form-group">
+              <label for="policyNameSelect">路由算法策略 (Policy Name)</label>
+              <select id="policyNameSelect" class="form-control">
+                <option value="F_expected">F_expected (默认推荐：期望总成本最小化，综合失败几率与代价)</option>
+                <option value="B_naive">B_naive (基础朴素：满足预测成功门槛的最廉价模型)</option>
+                <option value="C_ev_switch">C_ev_switch (EV 切换：仅当节省大于重跑期望成本时降级)</option>
+                <option value="D_escalate">D_escalate (阶梯升级：从廉价起步，故障时升级并记忆)</option>
+                <option value="A_static">A_static (固定单一强力主力模型)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="stakesInput">未捕获错误故障惩罚 (Stakes USD)</label>
+              <input type="number" step="0.1" id="stakesInput" class="form-control" value="2.0">
+              <small class="form-hint">当模型给出的回答存在隐蔽错误时的潜在损失惩罚金</small>
+            </div>
+
+            <div class="form-group">
+              <label for="detectProbInput">错误被及时发现概率 (Detect Probability)</label>
+              <input type="number" step="0.05" min="0" max="1" id="detectProbInput" class="form-control" value="0.6">
+            </div>
+
+            <div class="form-group">
+              <label for="failureCostInput">失败成本倍率 (Failure Cost Multiplier)</label>
+              <input type="number" step="0.1" id="failureCostInput" class="form-control" value="1.0">
+            </div>
+
+            <div class="form-group">
+              <label for="remainingTurnsInput">会话预期剩余轮次 (Remaining Turns Horizon)</label>
+              <input type="number" step="0.5" id="remainingTurnsInput" class="form-control" value="3.0">
+            </div>
+
+            <div class="form-group">
+              <label for="classifierBackendSelect">分类器后端 (Classifier Backend)</label>
+              <select id="classifierBackendSelect" class="form-control">
+                <option value="local">local (本地 Laya 引擎)</option>
+                <option value="hosted">hosted (远程 TypeSafe Jev API)</option>
+                <option value="heuristic">heuristic (规则启发式，无需模型)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="layaDeviceSelect">Laya 运行加速设备 (Hardware Device)</label>
+              <select id="layaDeviceSelect" class="form-control">
+                <option value="mps">Apple Metal (MPS) GPU 加速 [推荐 M4 Max]</option>
+                <option value="cpu">CPU 多线程加速</option>
+                <option value="auto">自动选择最佳可用设备</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="layaModelInput">Laya 模型 Checkpoint</label>
+              <input type="text" id="layaModelInput" class="form-control" value="convaiinnovations/laya">
+            </div>
+
+            <div class="form-group">
+              <label for="layaSubfolderInput">Checkpoint 子目录 (Subfolder)</label>
+              <input type="text" id="layaSubfolderInput" class="form-control" value="multilingual">
+              <small class="form-hint">输入 'multilingual' 支持中英文等100+语言；留空则使用纯英文 ModernBERT</small>
+            </div>
+
+            <div class="form-group">
+              <label for="requestCharsInput">提示词截断字符上限 (Request Chars Cap)</label>
+              <input type="number" id="requestCharsInput" class="form-control" value="6000">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: Benchmark & HTML Reports -->
+      <div class="tab-pane" id="paneBenchmark">
+        <!-- Test Runner Hero Card -->
+        <div class="section-card runner-card">
+          <div class="runner-left">
+            <h3>🚀 节省成本基准测试与综合评估中心</h3>
+            <p>运行包含 50+ 个典型中英文测试用例（覆盖简单代码、复杂算法、数理推导、常识及总结），测算 Laya 路由调度相比于全量昂贵/全量廉价模型的降本收益与路由可靠性。</p>
+            
+            <div class="mode-selector">
+              <label class="radio-card active" id="radioSimLabel" onclick="setBenchmarkMode('simulation')">
+                <input type="radio" name="benchMode" id="modeSim" value="simulation" checked>
+                <div>
+                  <strong>⚡ 极速模拟模式 (Fast Simulation)</strong>
+                  <span>0成本！本地 M4 Max 运行 Laya 前向分类，测算全量对比模型理论开销与节省</span>
+                </div>
+              </label>
+
+              <label class="radio-card" id="radioRealLabel" onclick="setBenchmarkMode('real')">
+                <input type="radio" name="benchMode" id="modeReal" value="real">
+                <div>
+                  <strong>🌐 真实端点压测 (Real API Benchmark)</strong>
+                  <span>实际向 LM Studio 及云端发起请求，记录真实首字耗时、Token 与账单</span>
+                </div>
+              </label>
+            </div>
+
+            <div class="runner-actions">
+              <button class="btn btn-primary btn-large" id="btnStartBenchmark" onclick="startBenchmark()">
+                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span>一键开始运行测试</span>
+              </button>
+              <div id="benchRunningSpinner" class="spinner-box" style="display: none;">
+                <div class="spinner"></div>
+                <span id="benchProgressText">正在通过 Laya 模型进行本地推理评估...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Latest Benchmark Result Quick View -->
+        <div class="section-card" id="latestResultCard" style="display: none;">
+          <div class="card-header">
+            <div>
+              <h3>📊 最新测试完成！综合评估摘要</h3>
+              <p id="latestSummaryMeta">完成时间: --</p>
+            </div>
+            <div class="btn-group">
+              <a href="#" target="_blank" class="btn btn-secondary" id="btnViewReport">👁️ 查看在线报告</a>
+              <a href="#" class="btn btn-primary" id="btnDownloadReport">⬇️ 下载独立 HTML 报告</a>
+            </div>
+          </div>
+
+          <div class="kpi-row" style="margin-top: 10px;">
+            <div class="kpi-card">
+              <div class="kpi-title"><span>成本节省率</span></div>
+              <div class="kpi-num kpi-highlight" id="resSavingsPct">--%</div>
+              <div class="kpi-sub" id="resSavingsUsd">已节省: $--</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-title"><span>智能路由总成本</span></div>
+              <div class="kpi-num" id="resRouterCost">$--</div>
+              <div class="kpi-sub" id="resExpensiveCost">全昂贵对比: $--</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-title"><span>Laya 决策平均耗时</span></div>
+              <div class="kpi-num" id="resLayaAvgLat">-- ms</div>
+              <div class="kpi-sub">Apple Silicon M4 Max MPS</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-title"><span>难度匹配率 (Accuracy)</span></div>
+              <div class="kpi-num" style="color: var(--primary);" id="resAccuracy">--%</div>
+              <div class="kpi-sub" id="resTotalCases">测试用例: -- 条</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Historical Reports Table -->
+        <div class="section-card">
+          <div class="card-header">
+            <div>
+              <h3>📑 历史评估报告归档 (Historical HTML Reports)</h3>
+              <p>所有生成的自包含 HTML 报告文件均保存在 `reports/` 目录下，可随时离线查看或下载分享</p>
+            </div>
+            <button class="btn btn-secondary" onclick="loadReportsList()">
+              <span>刷新报告列表</span>
+            </button>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>报告文件名</th>
+                  <th>生成时间</th>
+                  <th>大小</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="reportsTableBody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast" class="toast"></div>
+
+  <!-- Modal for Provider (Add/Edit Provider with Model Fetch & Select) -->
+  <div class="modal-backdrop" id="providerModal" style="display: none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="providerModalTitle">添加模型提供商 (Provider)</h3>
+        <button class="modal-close" onclick="closeModal('providerModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>提供商标识 (ID)</label>
+            <input type="text" id="provIdInput" class="form-control" placeholder="例如: lm-studio, deepseek, siliconflow">
+          </div>
+          <div class="form-group">
+            <label>Base URL 端点地址</label>
+            <input type="text" id="provUrlInput" class="form-control" placeholder="例如: http://localhost:1234/v1">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>API Key (密钥 / Token)</label>
+          <input type="password" id="provKeyInput" class="form-control" placeholder="本地 LM Studio 随意填写即可；云端厂商需真实 Key">
+        </div>
+
+        <!-- Auto Fetch Models Section -->
+        <div class="model-fetch-box">
+          <div class="fetch-box-header">
+            <div>
+              <strong>自动探测与获取端点可用模型</strong>
+              <p>调用提供商标准端点遍历当前可用模型列表，支持一键多选并直接批量同步至路由目录</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="btnFetchProvModels" onclick="fetchModelsForCurrentModal()">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+              <span>获取端点模型列表</span>
+            </button>
+          </div>
+
+          <!-- Models Selection Container -->
+          <div id="provModelsContainer" style="display: none; margin-top: 12px;">
+            <div class="models-toolbar">
+              <div class="select-all-box">
+                <input type="checkbox" id="chkSelectAllProvModels" onchange="toggleSelectAllProvModels(this.checked)">
+                <label for="chkSelectAllProvModels">全选 / 全不选 (<span id="provSelectedCount">0</span> 已勾选)</label>
+              </div>
+              <input type="text" id="provModelSearchInput" class="form-control form-control-sm" placeholder="快速筛选模型..." oninput="filterProvModelsList()">
+            </div>
+            <div class="models-checkbox-list" id="provModelsCheckList">
+              <!-- Dynamically populated checkboxes -->
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="testModalProvider()">⚡ 测试端点连通性</button>
+        <button class="btn btn-primary" onclick="saveProviderFromModal()">保存提供商并批量导入已选模型</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Existing Provider Model Selection & Sync -->
+  <div class="modal-backdrop" id="providerModelsModal" style="display: none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="providerModelsModalTitle">选择并同步提供商模型</h3>
+        <button class="modal-close" onclick="closeModal('providerModelsModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="fetch-box-header" style="margin-bottom: 12px;">
+          <div>
+            <span id="quickSyncProvMeta" style="font-size: 13px; color: var(--text-muted);">正在连接端点获取实时模型列表...</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="refreshQuickSyncModels()">
+            <span>🔄 重新拉取</span>
+          </button>
+        </div>
+
+        <div class="models-toolbar">
+          <div class="select-all-box">
+            <input type="checkbox" id="chkQuickSyncSelectAll" onchange="toggleSelectAllQuickSync(this.checked)">
+            <label for="chkQuickSyncSelectAll">全选 / 全不选 (<span id="quickSyncSelectedCount">0</span> 已勾选)</label>
+          </div>
+          <input type="text" id="quickSyncSearchInput" class="form-control form-control-sm" placeholder="筛选模型名称..." oninput="filterQuickSyncList()">
+        </div>
+
+        <div class="models-checkbox-list" id="quickSyncCheckList">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('providerModelsModal')">取消</button>
+        <button class="btn btn-primary" onclick="saveQuickSyncSelection()">确认同步选中的模型到路由目录</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Adding/Editing a Model (Cascading Selection & Editing) -->
+  <div class="modal-backdrop" id="modelModal" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modelModalTitle">添加路由候选模型</h3>
+        <button class="modal-close" onclick="closeModal('modelModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modelEditIndex" value="-1">
+        
+        <div id="modelLockNotice" style="display: none; padding: 8px 12px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; font-size: 12px; color: #b45309; margin-bottom: 12px;">
+          🔒 <strong>供应商</strong>、<strong>上游模型 ID</strong> 与<strong>免费属性</strong>为路由固有绑定标识，编辑模式下已锁定只读。
+        </div>
+
+        <div class="form-group">
+          <label>所属提供商 (Provider)</label>
+          <select id="modelProvSelect" class="form-control" onchange="onModelProviderChanged()">
+            <!-- Dynamically populated from config.providers -->
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>上游模型标识 (Model ID)</label>
+          <select id="modelUpstreamSelect" class="form-control" onchange="onModelUpstreamChanged()">
+            <!-- Dynamically populated from provider's models -->
+          </select>
+          <div id="customModelInputBox" style="display: none; margin-top: 6px;">
+            <input type="text" id="modelCustomUpstreamInput" class="form-control" placeholder="输入自定义上游模型 ID (如 qwen2.5-coder)">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>模型展示代号 (Name)</label>
+          <input type="text" id="modelNameInput" class="form-control" placeholder="用于 Router 路由标识，例如 qwen2.5-coder-7b">
+        </div>
+
+        <div class="form-group">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="modelFreeCheckbox" onchange="onModelFreeToggled()">
+            <span>设为免费 / 零成本模型 (本地 LM Studio 勾选此项，调用成本记为 0)</span>
+          </label>
+        </div>
+
+        <div class="form-grid" id="pricingGrid">
+          <div class="form-group">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <label style="margin-bottom: 0;">输入单价 (¥/1M)</label>
+              <span class="usd-converted-tag" id="inputPriceUsdTag">折合 $0.0000 / 1M</span>
+            </div>
+            <input type="number" step="0.001" min="0" id="modelInputPrice" class="form-control" value="0" oninput="updatePricingUsdDisplay()">
+          </div>
+          <div class="form-group">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <label style="margin-bottom: 0;">输出单价 (¥/1M)</label>
+              <span class="usd-converted-tag" id="outputPriceUsdTag">折合 $0.0000 / 1M</span>
+            </div>
+            <input type="number" step="0.001" min="0" id="modelOutputPrice" class="form-control" value="0" oninput="updatePricingUsdDisplay()">
+          </div>
+          <div class="form-group">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <label style="margin-bottom: 0;">缓存读取单价 (¥/1M)</label>
+              <span class="usd-converted-tag" id="cachePriceUsdTag">折合 $0.0000 / 1M</span>
+            </div>
+            <input type="number" step="0.0001" min="0" id="modelCachePrice" class="form-control" value="0" oninput="updatePricingUsdDisplay()">
+          </div>
+          <div class="form-group">
+            <label>上下文窗口上限 (Tokens)</label>
+            <select id="modelContextSelect" class="form-control">
+              <option value="16384">16k (16,384)</option>
+              <option value="32768">32k (32,768)</option>
+              <option value="65536">64k (65,536)</option>
+              <option value="131072" selected>128k (131,072)</option>
+              <option value="262144">256k (262,144)</option>
+              <option value="1048576">1M (1,048,576)</option>
+            </select>
+          </div>
+        </div>
+
+        <details class="capabilities-details" style="margin-top: 14px; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 14px; background: #fafafa;">
+          <summary style="font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-color); outline: none;">
+            ⚙️ 微调模型能力画像评分 (Capability Profile: 0.0 ~ 1.0)
+          </summary>
+          <p style="font-size: 12px; color: var(--text-muted); margin: 6px 0 10px 0;">设置模型在不同学科维度的能力表现预估值，Router 决策算法将结合难度评分智能匹配最经济模型。</p>
+          <div class="form-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size: 12px;">代码编程能力 (Coding)</label>
+              <input type="number" step="0.05" min="0" max="1" id="capCodingInput" class="form-control form-control-sm" value="0.85">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size: 12px;">数理推导能力 (Math)</label>
+              <input type="number" step="0.05" min="0" max="1" id="capMathInput" class="form-control form-control-sm" value="0.85">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size: 12px;">逻辑推理能力 (Reasoning)</label>
+              <input type="number" step="0.05" min="0" max="1" id="capReasoningInput" class="form-control form-control-sm" value="0.85">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size: 12px;">常识问答综合 (General)</label>
+              <input type="number" step="0.05" min="0" max="1" id="capGeneralInput" class="form-control form-control-sm" value="0.85">
+            </div>
+          </div>
+        </details>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modelModal')">取消</button>
+        <button class="btn btn-primary" id="saveModelBtn" onclick="saveModelFromModal()">保存模型到路由目录</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Model Live Capability Probe Detail -->
+  <div class="modal-backdrop" id="probeDetailModal" style="display: none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <div>
+          <h3 id="probeModalTitle">模型实时可用性与推理能力探测</h3>
+          <p id="probeModalSubtitle" style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">--</p>
+        </div>
+        <button class="modal-close" onclick="closeModal('probeDetailModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="kpi-row" style="margin-bottom: 16px;">
+          <div class="kpi-card" style="padding: 14px;">
+            <div class="kpi-title"><span>探测状态</span></div>
+            <div class="kpi-num" id="probeStatusText" style="font-size: 20px;">--</div>
+          </div>
+          <div class="kpi-card" style="padding: 14px;">
+            <div class="kpi-title"><span>首字延迟 (Latency)</span></div>
+            <div class="kpi-num" id="probeLatencyNum" style="font-size: 20px;">-- ms</div>
+          </div>
+          <div class="kpi-card" style="padding: 14px;">
+            <div class="kpi-title"><span>消耗 Tokens</span></div>
+            <div class="kpi-num" id="probeTokensNum" style="font-size: 20px;">--</div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>测试 Prompt 发送内容</label>
+          <input type="text" id="probePromptInput" class="form-control" value="请用Python写一个快速排序函数，并用一句话解释其原理。">
+        </div>
+
+        <div class="form-group" style="margin-top: 10px;">
+          <label>模型实时生成回复片段 (Output Snippet)</label>
+          <pre id="probeOutputSnippet" class="code-preview-box">正在等待探测响应...</pre>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="reRunModalProbe()">⚡ 再次测试</button>
+        <button class="btn btn-primary" onclick="closeModal('probeDetailModal')">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>

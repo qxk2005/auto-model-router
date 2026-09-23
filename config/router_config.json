@@ -1,0 +1,142 @@
+{
+  "providers": {
+    "lm-studio": {
+      "name": "lm-studio",
+      "base_url": "http://localhost:1234/v1",
+      "api_key": "lm-studio",
+      "cache": "openai",
+      "api": "openai"
+    },
+    "具生涌动": {
+      "name": "具生涌动",
+      "base_url": "${JUSHENG_BASE_URL}",
+      "api_key": "${JUSHENG_API_KEY}",
+      "cache": "openai",
+      "api": "openai"
+    }
+  },
+  "models": [
+    {
+      "name": "gemma-4-e4b",
+      "provider": "lm-studio",
+      "upstream_id": "google/gemma-4-e4b",
+      "free": true,
+      "prices": {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "capability": {
+        "coding": 75,
+        "math": 70,
+        "general": 80,
+        "knowledge": 75,
+        "summarisation": 80,
+        "agentic": 70,
+        "tool_use": 72
+      },
+      "context_tokens": 32768,
+      "tools": true,
+      "vision": false
+    },
+    {
+      "name": "deepseek-v4-flash",
+      "provider": "具生涌动",
+      "upstream_id": "deepseek-v4-flash",
+      "free": false,
+      "prices": {
+        "input": 1,
+        "output": 2,
+        "cache_read": 0.1,
+        "cache_write": 0.2
+      },
+      "capability": {
+        "coding": 95,
+        "math": 88,
+        "general": 92,
+        "knowledge": 90,
+        "summarisation": 90,
+        "agentic": 85,
+        "tool_use": 88
+      },
+      "context_tokens": 65536,
+      "tools": true,
+      "vision": false
+    },
+    {
+      "name": "deepseek-v4-pro",
+      "provider": "具生涌动",
+      "upstream_id": "deepseek-v4-pro",
+      "free": false,
+      "prices": {
+        "input": 4,
+        "output": 16,
+        "cache_read": 0.5,
+        "cache_write": 1
+      },
+      "capability": {
+        "coding": 90,
+        "math": 88,
+        "general": 92,
+        "knowledge": 90,
+        "summarisation": 90,
+        "agentic": 85,
+        "tool_use": 88
+      },
+      "context_tokens": 128000,
+      "tools": true,
+      "vision": false
+    }
+  ],
+  "policy": {
+    "name": "F_expected",
+    "currency": {
+      "base": "CNY",
+      "usd_cny_rate": 6.8
+    },
+    "classifier": {
+      "backend": "local",
+      "device": "mps",
+      "model": "convaiinnovations/laya",
+      "subfolder": "multilingual",
+      "threads": 4,
+      "request_chars": 6000,
+      "context_chars": 2000
+    },
+    "failure_cost_multiplier": 1,
+    "stakes_usd": 2,
+    "detect_prob": 0.6,
+    "remaining_turns": 3,
+    "difficulty_confidence": 1,
+    "escalate_after_tool_errors": 3,
+    "jev_difficulty_calibration": [
+      0.27,
+      0.51
+    ],
+    "verify": {
+      "enabled": false,
+      "max_price_per_mtok": 1,
+      "max_capability": 75,
+      "thresholds": {
+        "default": 0.3,
+        "coding": 0.3,
+        "math": 0.3
+      },
+      "catch_rate": {
+        "coding": 0.85,
+        "math": 0.67
+      },
+      "false_flag_rate": {
+        "coding": 0,
+        "math": 0
+      },
+      "skip_categories": [
+        "long_context"
+      ],
+      "judge_usd": 0.0004,
+      "judge_seconds": 0.05
+    }
+  },
+  "subscriptions": {}
+}

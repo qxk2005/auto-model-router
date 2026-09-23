@@ -462,28 +462,94 @@ class LocalLayaClassifier:
     ``FALLBACK`` just like a hosted classifier outage does.
     """
 
-    def __init__(self, model: str = "convaiinnovations/laya", threads: int = 4):
+    def __init__(
+        self,
+        model: str = "convaiinnovations/laya",
+        threads: int = 4,
+        device: str = "auto",
+        subfolder: str | None = "multilingual",
+    ):
         self.model = model
         self.threads = max(1, int(threads))
+        self.device_pref = device
+        self.subfolder = subfolder
+        self.actual_device = "unknown"
         self._agent = None
         self._load_lock = threading.Lock()
+        self._predict_lock = threading.Lock()
+
+    def _resolve_device(self) -> str:
+        import torch
+        if self.device_pref in ("mps", "auto"):
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return "mps"
+        if self.device_pref == "cuda" and torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
 
     def _load(self):
         if self._agent is None:
             with self._load_lock:
                 if self._agent is None:
+                    import os
+                    os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
                     import laya
                     import torch
-                    torch.set_num_threads(self.threads)
-                    self._agent = laya.load(self.model)
+                    dev = self._resolve_device()
+                    if dev == "cpu":
+                        torch.set_num_threads(self.threads)
+                    
+                    sub = self.subfolder
+                    if "multilingual" in self.model:
+                        sub = "multilingual"
+                        base_model = "convaiinnovations/laya"
+                    else:
+                        base_model = self.model
+
+                    self._agent = laya.load(base_model, device=dev, subfolder=sub)
+                    self.actual_device = str(getattr(self._agent, "device", dev))
         return self._agent
+
+    def warmup(self):
+        """Pre-warm the model on Apple Silicon MPS to eliminate cold-start delay."""
+        try:
+            self("Hello, world!")
+        except Exception:
+            pass
+
+    def judge(self, request: str, response: str, category: str = "") -> Judgement:
+        """Evaluate response adequacy using the local Laya model."""
+        started = time.perf_counter()
+        try:
+            state = {"request": scrub(request, REQUEST_CHARS), "response": scrub(response, RESPONSE_CHARS)}
+            questions = verify_questions(category) if category else JUDGE_QUESTION
+            agent = self._load()
+            with self._predict_lock:
+                payload = agent.predict(state, questions)
+            answers = payload["answers"]
+            usage = payload.get("usage") or {}
+            failure_answer = answers.get("failure") or {}
+            choice = failure_answer.get("choice")
+            return Judgement(
+                p_adequate=float(answers["adequate"]["noul"]),
+                latency_s=time.perf_counter() - started,
+                failure=str(choice) if choice in FAILURE_OPTIONS else "unknown",
+                failure_probs={k: float(v) for k, v in (failure_answer.get("probabilities") or {}).items()},
+                model=str(payload.get("model") or self.model),
+                input_tokens=int(usage.get("input_tokens") or 0),
+                output_tokens=int(usage.get("output_tokens") or 0),
+            )
+        except Exception:
+            return Judgement(0.5, 0.0, failed=True)
 
     def __call__(self, request: str, context: str = "") -> Classification:
         started = time.perf_counter()
         try:
             state = {"request": scrub(request, REQUEST_CHARS),
                      "context": scrub(context, CONTEXT_CHARS) or "(new conversation)"}
-            payload = self._load().predict(state, QUESTIONS)
+            agent = self._load()
+            with self._predict_lock:
+                payload = agent.predict(state, QUESTIONS)
             a = payload["answers"]
             usage = payload.get("usage") or {}
             return Classification(
@@ -502,7 +568,7 @@ class LocalLayaClassifier:
                 input_tokens=int(usage.get("input_tokens") or 0),
                 output_tokens=int(usage.get("output_tokens") or 0),
                 raw=a,
-                source_name="local-laya",
+                source_name=f"local-laya[{self.actual_device}]",
             )
         except Exception:  # backend/model failures must not take down the routed LLM call
             return FALLBACK
@@ -511,17 +577,19 @@ class LocalLayaClassifier:
 def classifier_from_config(policy: dict | None):
     """Build the selected classifier backend from ``policy.classifier``.
 
-    ``local`` uses Laya on CPU, ``hosted`` uses the existing TypeSafe/Jev API,
-    and ``heuristic`` disables model inference.  Returning ``None`` preserves
-    the router's existing cautious heuristic path.
+    ``local`` uses Laya on MPS/CPU, ``hosted`` uses the existing TypeSafe/Jev API,
+    and ``heuristic`` disables model inference.
     """
     cfg = (policy or {}).get("classifier") or {}
     backend = str(cfg.get("backend") or "").lower()
     if not backend:
         return classify if os.environ.get("TYPESAFE_API_KEY") else None
     if backend == "local":
-        return LocalLayaClassifier(str(cfg.get("model") or "convaiinnovations/laya"),
-                                   int(cfg.get("threads") or 4))
+        model_name = str(cfg.get("model") or "convaiinnovations/laya")
+        threads = int(cfg.get("threads") or 4)
+        device = str(cfg.get("device") or "mps")
+        subfolder = cfg.get("subfolder", "multilingual")
+        return LocalLayaClassifier(model=model_name, threads=threads, device=device, subfolder=subfolder)
     if backend in {"hosted", "jev"}:
         return classify
     if backend in {"heuristic", "none", "disabled"}:

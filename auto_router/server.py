@@ -681,14 +681,6 @@ async def _anthropic_stream(payload: dict, provider: Provider, result: RouteResu
                    classification_ms=result.classification_ms, usage=outcome.usage)
 
 
-@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
-async def catch_all(path: str, request: Request) -> Response:
-    """Claude Code also calls count_tokens and telemetry endpoints; pass them to Anthropic."""
-    from . import shim
-    body = await request.body()
-    return await shim.passthrough(request, body, f"/{path}")
-
-
 def main() -> None:
     """Console entry point installed by the one-line local installer."""
     import uvicorn

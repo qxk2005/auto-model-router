@@ -55,6 +55,7 @@ class Provider:
     name: str
     base_url: str
     api_key_env: str | None = None
+    api_key_literal: str | None = None
     cache: str = "generic"
     extra_headers: dict[str, str] = field(default_factory=dict)
     #: "openai" (chat completions) or "anthropic" (messages passthrough).
@@ -62,6 +63,8 @@ class Provider:
 
     @property
     def api_key(self) -> str | None:
+        if self.api_key_literal:
+            return self.api_key_literal
         return os.environ.get(self.api_key_env) if self.api_key_env else None
 
 
@@ -196,12 +199,22 @@ def load_config(path: str | Path | None = None, *, bench: BenchmarkClient | None
                 use_bench: bool = True) -> RouterConfig:
     path = path or os.environ.get("AUTO_ROUTER_CONFIG")
     if not path:
+        default_p = Path("config/router_config.json")
+        if default_p.exists():
+            path = default_p
+    if not path or not Path(path).exists():
         return RouterConfig(providers={}, catalog=Catalog([]))
     raw = _load_file(path)
     providers = {
-        name: Provider(name=name, base_url=p["base_url"].rstrip("/"),
-                       api_key_env=p.get("api_key_env"), cache=p.get("cache", "generic"),
-                       extra_headers=p.get("extra_headers") or {}, api=p.get("api", "openai"))
+        name: Provider(
+            name=name,
+            base_url=p["base_url"].rstrip("/"),
+            api_key_env=p.get("api_key_env"),
+            api_key_literal=p.get("api_key") or p.get("api_key_literal"),
+            cache=p.get("cache", "generic"),
+            extra_headers=p.get("extra_headers") or {},
+            api=p.get("api", "openai"),
+        )
         for name, p in (raw.get("providers") or {}).items()
     }
     if use_bench and bench is None:
@@ -210,3 +223,16 @@ def load_config(path: str | Path | None = None, *, bench: BenchmarkClient | None
     return RouterConfig(providers=providers, catalog=Catalog(models),
                         subscriptions=raw.get("subscriptions") or {},
                         policy=raw.get("policy") or {}, raw=raw)
+
+
+def save_config(raw: dict, path: str | Path | None = None) -> str:
+    """Save raw configuration dict to JSON or YAML."""
+    p = Path(path or os.environ.get("AUTO_ROUTER_CONFIG") or "config/router_config.json")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if str(p).endswith((".yaml", ".yml")):
+        import yaml
+        p.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    else:
+        p.write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding="utf-8")
+    return str(p.resolve())
+

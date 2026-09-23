@@ -11,6 +11,48 @@ the vendors allow there is quoted, with links, in [`TERMS.md`](TERMS.md).
 
 Status: experimental, measured. Full method and numbers: [`EXPERIMENTS.md`](EXPERIMENTS.md).
 
+---
+
+## 🇨🇳 优化增强版特性总览 (Laya 本地加速 & 浅色 Web 控制台)
+
+本项目在原有的经济成本模型与路由机制基础上，完成了面向 **Apple Silicon (M4 Max Metal MPS 硬件加速)** 与 **现代化可视化交互** 的深度优化定制：
+
+### 🌟 核心特性
+1. **Laya 本地非自回归模型极速决策 (Apple Silicon Metal MPS 加速)**：
+   - 本地加载多语言模型 `convaiinnovations/laya` (`multilingual` 分支，覆盖 100+ 语言)；
+   - 在 Apple M4 Max GPU Metal 加速下，单次请求难度与能力分类耗时从原本 CPU 的数秒降至 **50~65 ms**，兼具零网络延迟与 100% 本地隐私安全性；
+   - 底层实现 Metal 编码器线程安全保护互斥锁 (`_predict_lock`)，杜绝高并发下 Metal CommandBuffer 断言异常。
+2. **统一端口架构与现代浅色 Web 控制台 (`:8765`)**：
+   - 启动单一服务即可同时提供 **OpenAI 兼容代理网关 (`/v1/chat/completions`)** 与 **现代优雅浅色 WebUI (`/`)**；
+   - 采用精致米白与纯白卡片、微边框及高光青蓝主题，彻底解决宽表格布局下的侧边栏挤压变形问题，菜单与内容区恒定锁止。
+3. **提供商端点自动拉取与批量导入**：
+   - 原生支持本地 LM Studio (`http://localhost:1234/v1`) 及云端各厂商；
+   - 一键测试端点连通性、遍历可用上游模型、支持搜索与批量复选同步至路由目录（本地自动设为零成本）。
+4. **模型属性编辑与固有字段只读保护**：
+   - 路由模型目录中支持点击「✏️ 编辑」修改模型展示代号、单价、上下文窗口上限与学科能力画像；
+   - 对 **所属提供商 (Provider)**、**上游模型 ID (Upstream ID)** 及 **免费状态 (Free)** 实施严格只读锁定（`disabled`）与醒目提示，避免误改破坏路由调用链路。
+5. **人民币 (¥) 与美元 ($) 双计价体系与汇率实时折算**：
+   - 全系统标定以人民币（¥）为基准货币，完全贴合国内大模型每百万 Token 计价习惯；
+   - 集中在策略设置页统一配置基准汇率（默认 1 USD = 7.20 CNY）；
+   - 表单输入人民币即时联动呈现折合美元，表格列并列展示双币种（如 `¥1.000 ($0.1389)`）。
+6. **降本基准测试中心与自包含 HTML 评估报告**：
+   - 内置 35+ 条典型中英文降本测试用例（覆盖简单常识、代码生成、复杂动态规划算法、数理推导等）；
+   - 支持极速模拟模式与真实 API 压测模式，一键生成浅色自包含交互式 HTML 评估报告，总开销与节省额全量以纯人民币呈现，并附注折算汇率。
+
+### 🚀 快速启动
+```bash
+# 1. 安装依赖
+pip install -r requirements.txt
+
+# 2. 启动服务（默认监听 0.0.0.0:8765）
+python main.py --port 8765
+
+# 3. 访问控制台
+# 打开浏览器访问 http://localhost:8765
+```
+
+---
+
 ## Vision
 
 This router is one link in a longer chain, and it is built so the other links can

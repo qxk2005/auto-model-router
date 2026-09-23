@@ -1,0 +1,352 @@
+[
+  {
+    "id": "code_easy_01",
+    "category": "coding",
+    "difficulty_tag": "easy",
+    "prompt": "写一个 Python 函数，检查输入的字符串是否为回文（忽略大小写和非字母数字字符）。",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 45,
+    "estimated_output_tokens": 120,
+    "criteria": "经典简单字符串处理，低成本或本地模型即可完美解答。"
+  },
+  {
+    "id": "code_easy_02",
+    "category": "coding",
+    "difficulty_tag": "easy",
+    "prompt": "请写一个正则表达式，用于校验标准合法的电子邮箱地址格式（如 username@example.com）。",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 40,
+    "estimated_output_tokens": 100,
+    "criteria": "常规正则编写，廉价模型完全胜任，无复杂上下文依赖。"
+  },
+  {
+    "id": "code_easy_03",
+    "category": "coding",
+    "difficulty_tag": "easy",
+    "prompt": "Write a bash script to find all files ending in .log older than 7 days in /var/log and delete them.",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 38,
+    "estimated_output_tokens": 80,
+    "criteria": "一行 find 命令即可解决的常规运维脚本。"
+  },
+  {
+    "id": "code_easy_04",
+    "category": "coding",
+    "difficulty_tag": "easy",
+    "prompt": "如何用 JavaScript 将一个形如 [{'id': 1, 'name': 'A'}, {'id': 2, 'name': 'B'}] 的对象数组按 id 转换成以 id 为键的字典对象？",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 60,
+    "estimated_output_tokens": 90,
+    "criteria": "基础数组 reduce / Object.fromEntries 操作。"
+  },
+  {
+    "id": "code_easy_05",
+    "category": "coding",
+    "difficulty_tag": "easy",
+    "prompt": "用 Python 写一个将嵌套的 JSON 字典扁平化（flatten）的辅助函数。",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 35,
+    "estimated_output_tokens": 150,
+    "criteria": "简单的递归扁平化字典实现。"
+  },
+  {
+    "id": "code_med_01",
+    "category": "coding",
+    "difficulty_tag": "moderate",
+    "prompt": "请用 Python 实现一个线程安全且支持 TTL 过期淘汰的 LRU Cache 类，需包含 get, put 方法并附带单元测试用例。",
+    "expected_tier": "mid",
+    "estimated_prompt_tokens": 70,
+    "estimated_output_tokens": 400,
+    "criteria": "需要结合双向链表、锁机制与时间淘汰，需要中等工程能力。"
+  },
+  {
+    "id": "code_med_02",
+    "category": "coding",
+    "difficulty_tag": "moderate",
+    "prompt": "使用 FastAPI 和 asyncio 编写一个带速率限制（Token Bucket 令牌桶算法）的中间件，针对每个客户端 IP 限流 60次/分钟。",
+    "expected_tier": "mid",
+    "estimated_prompt_tokens": 80,
+    "estimated_output_tokens": 380,
+    "criteria": "需要准确理解异步中间件与令牌桶数学逻辑。"
+  },
+  {
+    "id": "code_med_03",
+    "category": "coding",
+    "difficulty_tag": "moderate",
+    "prompt": "优化以下 SQL 查询：某千万级订单表按 user_id 分区，现需统计近30天每个用户的订单总金额并取出消费前100名的用户，频繁出现全表扫描告警。请给出索引设计与改写后的 SQL。",
+    "expected_tier": "mid",
+    "estimated_prompt_tokens": 95,
+    "estimated_output_tokens": 350,
+    "criteria": "需要数据库索引、覆盖索引与窗口函数/分组优化认知。"
+  },
+  {
+    "id": "code_hard_01",
+    "category": "coding",
+    "difficulty_tag": "hard",
+    "prompt": "深入排查与重构以下 Go 语言分布式 Raft 选举实现：在网络分区恢复后出现 Split-Brain 双主现象，并且在非对称丢包场景下 Term 递增导致选票死锁。请分析潜在的并发竞争点并给出严格符合 Raft 论文的选举安全修复代码及状态机转换证明。",
+    "expected_tier": "expensive",
+    "estimated_prompt_tokens": 120,
+    "estimated_output_tokens": 800,
+    "criteria": "高难度分布式系统并发竞态与一致性协议，必须强力模型处理。"
+  },
+  {
+    "id": "code_hard_02",
+    "category": "coding",
+    "difficulty_tag": "hard",
+    "prompt": "实现一个零拷贝的 RingBuffer 环形无锁队列（C++20 或 Rust），要求支持单生产者多消费者（SPMC），基于 memory_order_acquire/release 显式内存屏障，保证无 ABA 问题，并分析在 ARM64 弱内存模型下的重排保护。",
+    "expected_tier": "expensive",
+    "estimated_prompt_tokens": 110,
+    "estimated_output_tokens": 750,
+    "criteria": "涉及弱内存序、原子指针与底层并发无锁架构，错误代码会导致隐蔽崩溃。"
+  },
+  {
+    "id": "math_easy_01",
+    "category": "math",
+    "difficulty_tag": "easy",
+    "prompt": "小明买了一件打 8 折的衣服，折后价格为 160 元。请问这件衣服的原价是多少元？",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 40,
+    "estimated_output_tokens": 60,
+    "criteria": "小学一元一次方程，廉价模型即可精确解答。"
+  },
+  {
+    "id": "math_easy_02",
+    "category": "math",
+    "difficulty_tag": "easy",
+    "prompt": "计算表达式的值：(35 * 12) + (144 / 12) - 88 =",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 35,
+    "estimated_output_tokens": 70,
+    "criteria": "基础四则混合运算。"
+  },
+  {
+    "id": "math_easy_03",
+    "category": "math",
+    "difficulty_tag": "easy",
+    "prompt": "已知直角三角形的两条直角边分别为 6 和 8，求斜边的长度以及该三角形的面积。",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 42,
+    "estimated_output_tokens": 80,
+    "criteria": "勾股定理直接计算。"
+  },
+  {
+    "id": "math_med_01",
+    "category": "math",
+    "difficulty_tag": "moderate",
+    "prompt": "某笔贷款金额为 100 万元，年利率为 4.2%，还款期限为 20 年，采用等额本息还款方式。请计算每月需还款金额以及 20 年累计支付的总利息（保留两位小数，并给出推导公式）。",
+    "expected_tier": "mid",
+    "estimated_prompt_tokens": 75,
+    "estimated_output_tokens": 300,
+    "criteria": "年金现值等比数列求和推导与数值计算。"
+  },
+  {
+    "id": "math_med_02",
+    "category": "math",
+    "difficulty_tag": "moderate",
+    "prompt": "袋中有 5 个红球、3 个白球、2 个黑球。不放回地连续抽取 3 次，每次取 1 球。求：(1) 取出的 3 个球颜色全不相同的概率；(2) 至少取到 1 个红球的概率。",
+    "expected_tier": "mid",
+    "estimated_prompt_tokens": 78,
+    "estimated_output_tokens": 280,
+    "criteria": "典型高中概率组合计数，需要清晰的分类讨论。"
+  },
+  {
+    "id": "math_hard_01",
+    "category": "math",
+    "difficulty_tag": "hard",
+    "prompt": "证明对任意奇素数 p，Legendre 符号满足高斯二次互反律：(p/q)(q/p) = (-1)^((p-1)/2 * (q-1)/2)。请给出基于高斯和（Gauss Sum）或代数数论分圆域的严格证明步骤。",
+    "expected_tier": "expensive",
+    "estimated_prompt_tokens": 90,
+    "estimated_output_tokens": 850,
+    "criteria": "高深数论定理证明，需要强力推理大模型方能提供严密论述。"
+  },
+  {
+    "id": "math_hard_02",
+    "category": "math",
+    "difficulty_tag": "hard",
+    "prompt": "求解偏微分方程（Black-Scholes 期权定价模型）：∂V/∂t + 0.5 * σ^2 * S^2 * ∂^2V/∂S^2 + r * S * ∂V/∂S - r * V = 0，给出边界条件下的换元变换过程，并推导欧式看涨期权的封闭解析解公式。",
+    "expected_tier": "expensive",
+    "estimated_prompt_tokens": 110,
+    "estimated_output_tokens": 900,
+    "criteria": "金融工程与热传导方程换元求偏导，推导繁琐且容错率极低。"
+  },
+  {
+    "id": "chat_easy_01",
+    "category": "general",
+    "difficulty_tag": "trivial",
+    "prompt": "早上好！今天天气真不错，心情挺好。",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 25,
+    "estimated_output_tokens": 50,
+    "criteria": "简单寒暄打招呼，本地模型 0 成本即可亲切回应。"
+  },
+  {
+    "id": "chat_easy_02",
+    "category": "general",
+    "difficulty_tag": "trivial",
+    "prompt": "请帮我把这句话翻译成英文和法语：'期待与您的进一步合作。'",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 30,
+    "estimated_output_tokens": 60,
+    "criteria": "常见商务简短中英法翻译，无需昂贵模型。"
+  },
+  {
+    "id": "chat_easy_03",
+    "category": "general",
+    "difficulty_tag": "easy",
+    "prompt": "给我讲一个关于程序员调 bug 的冷笑话。",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 25,
+    "estimated_output_tokens": 100,
+    "criteria": "轻松幽默段子生成。"
+  },
+  {
+    "id": "chat_easy_04",
+    "category": "general",
+    "difficulty_tag": "easy",
+    "prompt": "写一份简短的请假条模板（因家里有急事请假一天），语气礼貌得体。",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 35,
+    "estimated_output_tokens": 120,
+    "criteria": "通用应用文模板，廉价模型完全满足。"
+  },
+  {
+    "id": "chat_med_01",
+    "category": "general",
+    "difficulty_tag": "moderate",
+    "prompt": "请为一家面向年轻人的智能家居品牌撰写一份产品发布会演讲开场白（约 300 字），风格需科技感与人文温情并重，引人入胜。",
+    "expected_tier": "mid",
+    "estimated_prompt_tokens": 60,
+    "estimated_output_tokens": 350,
+    "criteria": "文笔要求较高，需兼顾语感与修辞。"
+  },
+  {
+    "id": "chat_hard_01",
+    "category": "general",
+    "difficulty_tag": "hard",
+    "prompt": "从本体论（Ontology）和认知科学的角度，对比海德格尔的‘在世之在’（Dasein）与当代大语言模型具身智能（Embodied AI）的意识与意向性假说，撰写一篇 800 字的深度学术辩证综述，分析人工系统是否可能跨越知觉经验的‘解释鸿沟’（Explanatory Gap）。",
+    "expected_tier": "expensive",
+    "estimated_prompt_tokens": 115,
+    "estimated_output_tokens": 950,
+    "criteria": "深奥的欧陆哲学与心智哲学交叉探讨，廉价模型易出现概念混淆与空洞套话。"
+  },
+  {
+    "id": "know_easy_01",
+    "category": "knowledge",
+    "difficulty_tag": "trivial",
+    "prompt": "中国的首都是哪个城市？",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 20,
+    "estimated_output_tokens": 30,
+    "criteria": "简单单点事实问答，超廉价/本地模型秒答。"
+  },
+  {
+    "id": "know_easy_02",
+    "category": "knowledge",
+    "difficulty_tag": "easy",
+    "prompt": "光在真空中的传播速度是多少米每秒？",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 22,
+    "estimated_output_tokens": 40,
+    "criteria": "物理基础常识。"
+  },
+  {
+    "id": "know_easy_03",
+    "category": "knowledge",
+    "difficulty_tag": "easy",
+    "prompt": "简要列举太阳系八大行星按距离太阳由近及远的排列顺序。",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 30,
+    "estimated_output_tokens": 80,
+    "criteria": "标准常识列举。"
+  },
+  {
+    "id": "know_med_01",
+    "category": "knowledge",
+    "difficulty_tag": "moderate",
+    "prompt": "请通俗且准确地解释计算机网络中的 TCP 三次握手和四次挥手过程，以及为什么断开连接需要多一次挥手？",
+    "expected_tier": "mid",
+    "estimated_prompt_tokens": 55,
+    "estimated_output_tokens": 400,
+    "criteria": "计算机专业经典知识点，逻辑清晰即可。"
+  },
+  {
+    "id": "know_med_02",
+    "category": "knowledge",
+    "difficulty_tag": "moderate",
+    "prompt": "对比锂三元电池与磷酸铁锂（LFP）电池在能量密度、热失控温度、循环寿命和低温性能上的具体差异。",
+    "expected_tier": "mid",
+    "estimated_prompt_tokens": 60,
+    "estimated_output_tokens": 350,
+    "criteria": "工业与动力电池技术参数对比。"
+  },
+  {
+    "id": "know_hard_01",
+    "category": "knowledge",
+    "difficulty_tag": "hard",
+    "prompt": "全面剖析现代 Linux 内核在 x86-64 架构下处理缺页异常（Page Fault）的全过程：从 CR2 寄存器读取、do_user_addr_fault、VMA 红黑树查找、COW（写时复制）分配物理页帧，直到最后刷新 TLB 的具体汇编与 C 核心调用栈链路，并说明与 HugeTLB 的差异。",
+    "expected_tier": "expensive",
+    "estimated_prompt_tokens": 125,
+    "estimated_output_tokens": 900,
+    "criteria": "深度操作系统内核虚拟内存管理细节，只有顶尖大模型能给出严谨准确的代码链路。"
+  },
+  {
+    "id": "summ_easy_01",
+    "category": "summarisation",
+    "difficulty_tag": "easy",
+    "prompt": "将以下通知用一句话提炼核心信息：'各位同事，因下周五公司将进行电力设备年检，全大楼将于早8点至晚6点断电，届时请大家在家远程办公，如有紧急事项请联系行政部。'",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 70,
+    "estimated_output_tokens": 40,
+    "criteria": "短文本一句话提炼，本地或平价模型轻松胜任。"
+  },
+  {
+    "id": "summ_med_01",
+    "category": "summarisation",
+    "difficulty_tag": "moderate",
+    "prompt": "请阅读以下需求评审会议纪要，归纳出：1. 已确认的需求项；2. 待跟进确认的风险项；3. 各方负责人与截止时间表：'张三提出支持微信支付，李四确认后端接口已就绪，但风控评估由于王五出差尚未完成，约定下周三前王五补齐报告；赵六提出新增国际信用卡网关，团队评估工期需增加两周，暂列入二期规划。'",
+    "expected_tier": "mid",
+    "estimated_prompt_tokens": 120,
+    "estimated_output_tokens": 250,
+    "criteria": "中等长度纪要信息结构化提取。"
+  },
+  {
+    "id": "summ_hard_01",
+    "category": "summarisation",
+    "difficulty_tag": "hard",
+    "prompt": "以下为两家科技公司财报披露的相互冲突的声明与供应链备料预警片段（涉及汇率对冲、库存周转天数与毛利率口径差异）。请以投行分析师视角，交叉比对两者在收入确认时间点上的会计准则（IFRS 15 vs US GAAP ASC 606）差异，并输出一份 500 字的潜在财务异动与商誉减值预警研报。",
+    "expected_tier": "expensive",
+    "estimated_prompt_tokens": 140,
+    "estimated_output_tokens": 700,
+    "criteria": "高难度跨会计准则财务分析与审计鉴证研判。"
+  },
+  {
+    "id": "agentic_easy_01",
+    "category": "agentic",
+    "difficulty_tag": "easy",
+    "prompt": "检查当前目录下是否存在 package.json 文件，如果存在则读取其 'dependencies' 列表并返回。",
+    "expected_tier": "cheap",
+    "estimated_prompt_tokens": 40,
+    "estimated_output_tokens": 80,
+    "criteria": "单步简单文件检查与读取。"
+  },
+  {
+    "id": "agentic_med_01",
+    "category": "agentic",
+    "difficulty_tag": "moderate",
+    "prompt": "请编写一个多步骤的自动化任务脚本：监控指定服务器端口，如果 3 次健康检查失败则向钉钉 Webhook 发送报警消息，并收集系统最近 50 条 dmesg 错误日志写入 /tmp/incident.log。",
+    "expected_tier": "mid",
+    "estimated_prompt_tokens": 85,
+    "estimated_output_tokens": 350,
+    "criteria": "多步骤监控故障处理链路。"
+  },
+  {
+    "id": "agentic_hard_01",
+    "category": "agentic",
+    "difficulty_tag": "hard",
+    "prompt": "给定一个包含 5 个微服务且存在循环依赖的大型代码库，设计一个具备状态回滚能力的自动化代码重构 Agent 工作流：需按拓扑序提取共享接口，在沙箱环境中执行变异测试（Mutation Testing），自动修复断言失败，并在测试覆盖率不下降的前提下产出分步迁移 PR。",
+    "expected_tier": "expensive",
+    "estimated_prompt_tokens": 130,
+    "estimated_output_tokens": 850,
+    "criteria": "高复杂度自主软件工程 Agent 架构设计与状态机规划。"
+  }
+]

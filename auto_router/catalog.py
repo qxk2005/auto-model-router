@@ -156,6 +156,10 @@ class ModelInfo:
     launch_only: bool = False
 
     @property
+    def free(self) -> bool:
+        return self.prices.is_free if self.prices else True
+
+    @property
     def measurement_key(self) -> str:
         """The name measurements about this model are filed under."""
         return self.success_key or self.name
@@ -216,6 +220,10 @@ class Catalog:
         return self._models.get(name) if name else None
 
     def all(self) -> list[ModelInfo]:
+        return list(self._models.values())
+
+    @property
+    def models(self) -> list[ModelInfo]:
         return list(self._models.values())
 
     def http_routable(self) -> list[ModelInfo]:
