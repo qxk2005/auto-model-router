@@ -59,6 +59,7 @@ class CaseResult:
     real_response: str = ""
     error: str = ""
     # Execution Trace Chain fields
+    trace_id: str = ""
     trace_chain: list[dict] = field(default_factory=list)
     hop_count: int = 1
     escalated: bool = False
@@ -207,6 +208,147 @@ class BenchmarkEvaluator:
             return 0.0
         return (prompt_tokens * model.prices.input + output_tokens * model.prices.output) / 1_000_000.0
 
+    def _build_jaeger_trace(
+        self,
+        cid: str,
+        prompt: str,
+        cat_expected: str,
+        diff_tag: str,
+        policy_name: str,
+        raw_stages: list[dict],
+        total_tokens: int,
+        total_cost_usd: float,
+        savings_pct: float,
+        has_error: bool = False,
+        is_escalated: bool = False,
+    ) -> tuple[str, list[dict]]:
+        """Build standards-compliant Jaeger / OpenTelemetry Spans hierarchy (Root + Children)."""
+        import hashlib
+        raw_hash = hashlib.sha256(f"{cid}_{prompt}".encode("utf-8")).hexdigest()
+        trace_id = raw_hash[:16]
+        root_span_id = trace_id[:8]
+
+        tot_dur_ms = round(max((s.get("start_ms", 0.0) + s.get("duration_ms", 0.0)) for s in raw_stages), 2) if raw_stages else 0.0
+        root_status = "error" if has_error else ("escalated" if is_escalated else "ok")
+
+        root_span = {
+            "span_id": root_span_id,
+            "parent_span_id": None,
+            "depth": 1,
+            "service": "amra",
+            "operation": "amra: /v1/chat/completions",
+            "stage_type": "root",
+            "name": "amra: /v1/chat/completions",
+            "start_ms": 0.0,
+            "duration_ms": tot_dur_ms,
+            "status": root_status,
+            "tags": {
+                "component": "amra_router",
+                "case.id": cid,
+                "case.category": cat_expected,
+                "case.difficulty": diff_tag,
+                "router.policy": policy_name,
+                "tokens.total": total_tokens,
+                "cost.usd": f"${total_cost_usd:.6f}",
+                "savings.pct": f"{savings_pct}%",
+                "has_error": has_error,
+                "is_escalated": is_escalated,
+            },
+            "process": {
+                "env": "benchmark",
+                "runtime": "python3.11",
+                "service.version": "v1.2.0",
+            },
+            "logs": [
+                {"time_ms": 0.0, "event": "request_received", "payload": prompt[:120] + ("..." if len(prompt) > 120 else "")},
+                {"time_ms": tot_dur_ms, "event": "request_completed", "payload": f"Completed with status {root_status}"},
+            ],
+            "snippet": prompt[:140] + ("..." if len(prompt) > 140 else ""),
+            "detail": f"全链路总时延: {tot_dur_ms}ms, 状态: {root_status}",
+        }
+
+        spans = [root_span]
+
+        for idx, st in enumerate(raw_stages, start=1):
+            child_span_id = f"{trace_id[:4]}c{idx:02d}"
+            st_type = st.get("stage_type", "stage")
+            dur_ms = round(st.get("duration_ms", 0.0), 2)
+            start_ms = round(st.get("start_ms", 0.0), 2)
+            st_status = st.get("status", "ok")
+
+            if st_type == "classifier":
+                svc = "laya"
+                op = "laya: /classify & /route"
+            elif st_type == "verifier":
+                svc = "laya"
+                op = "laya: /quality_check"
+            elif st_type == "primary_model":
+                svc = f"provider[{st.get('provider', 'primary')}]"
+                op = f"{st.get('name', 'model')} /generate"
+            elif st_type in ("escalate_model", "fallback_model", "retry_model"):
+                svc = f"provider[{st.get('provider', 'escalate')}]"
+                op = f"{st.get('name', 'model')} /escalated_generation"
+            else:
+                svc = st.get("provider", "service")
+                op = st.get("name", "operation")
+
+            tokens_info = st.get("tokens") or {}
+            p_tok = tokens_info.get("prompt", 0)
+            c_tok = tokens_info.get("completion", 0)
+            t_tok = tokens_info.get("total", p_tok + c_tok)
+            speed = round(c_tok / max(0.001, dur_ms / 1000.0), 1) if c_tok > 0 else 0.0
+
+            tags = {
+                "stage.type": st_type,
+                "status": st_status,
+            }
+            if "provider" in st:
+                tags["peer.service"] = str(st["provider"])
+            if "name" in st:
+                tags["model.id"] = str(st["name"])
+            if t_tok > 0:
+                tags["tokens.prompt"] = p_tok
+                tags["tokens.completion"] = c_tok
+                tags["tokens.total"] = t_tok
+            if speed > 0:
+                tags["tokens.per_second"] = speed
+            if "cost_usd" in st and st["cost_usd"] > 0:
+                tags["cost.usd"] = f"${st['cost_usd']:.6f}"
+            if "detail" in st and st["detail"]:
+                tags["stage.detail"] = str(st["detail"])
+
+            logs = []
+            if "snippet" in st and st["snippet"]:
+                logs.append({"time_ms": dur_ms, "event": "output_snippet", "payload": str(st["snippet"])})
+
+            child_span = {
+                "span_id": child_span_id,
+                "parent_span_id": root_span_id,
+                "depth": 2,
+                "service": svc,
+                "operation": op,
+                "stage_type": st_type,
+                "name": st.get("name", op),
+                "provider": st.get("provider", svc),
+                "start_ms": start_ms,
+                "duration_ms": dur_ms,
+                "status": st_status,
+                "tokens": tokens_info,
+                "cost_usd": st.get("cost_usd", 0.0),
+                "tags": tags,
+                "process": {
+                    "env": "benchmark",
+                    "service": svc,
+                },
+                "logs": logs,
+                "snippet": st.get("snippet", ""),
+                "detail": st.get("detail", ""),
+            }
+            spans.append(child_span)
+
+        return trace_id, spans
+
+
     def run_simulation(self, cases: list[dict], on_progress: Callable[[int, int], None] | None = None) -> BenchmarkSummary:
         """Run fast simulation across all cases using Laya forward pass on local M4 Max."""
         expensive_model, cheap_model = self._get_baseline_models()
@@ -270,7 +412,7 @@ class BenchmarkEvaluator:
 
             # 构建仿真模拟的完整执行链路 (Trace Chain)
             dev_str = getattr(self.router.classifier, "actual_device", "mps").upper() if hasattr(self.router, "classifier") else "MPS"
-            trace_chain: list[dict] = [{
+            raw_stages: list[dict] = [{
                 "stage_index": 1,
                 "stage_type": "classifier",
                 "name": f"Laya 决策引擎 ({dev_str})",
@@ -292,7 +434,7 @@ class BenchmarkEvaluator:
             will_escalate = (p_failure_sim > 0.40)
 
             if not will_escalate:
-                trace_chain.append({
+                raw_stages.append({
                     "stage_index": 2,
                     "stage_type": "primary_model",
                     "name": chosen_name,
@@ -305,7 +447,7 @@ class BenchmarkEvaluator:
                     "detail": "首选模型推演完成 (HTTP 200 模拟响应)",
                     "snippet": f"首选模型生成完毕，Token 消耗: {prompt_tokens + output_tokens}",
                 })
-                trace_chain.append({
+                raw_stages.append({
                     "stage_index": 3,
                     "stage_type": "verifier",
                     "name": "Laya 质量验收裁决 (Adequacy Check)",
@@ -321,7 +463,7 @@ class BenchmarkEvaluator:
                 hop_count = 1
                 is_case_escalated = False
             else:
-                trace_chain.append({
+                raw_stages.append({
                     "stage_index": 2,
                     "stage_type": "primary_model",
                     "name": chosen_name,
@@ -335,7 +477,7 @@ class BenchmarkEvaluator:
                     "snippet": "生成结果较为简略，未充分覆盖复杂难点",
                 })
                 ver_ms = 16.0
-                trace_chain.append({
+                raw_stages.append({
                     "stage_index": 3,
                     "stage_type": "verifier",
                     "name": "Laya 质量验收裁决 (Adequacy Check)",
@@ -351,7 +493,7 @@ class BenchmarkEvaluator:
                 esc_model = expensive_model or chosen_model
                 esc_cost = self._calc_model_cost(esc_model, prompt_tokens, output_tokens)
                 esc_dur_ms = 460.0
-                trace_chain.append({
+                raw_stages.append({
                     "stage_index": 4,
                     "stage_type": "escalate_model",
                     "name": getattr(esc_model, "name", "escalated-model"),
@@ -366,6 +508,21 @@ class BenchmarkEvaluator:
                 })
                 hop_count = 2
                 is_case_escalated = True
+
+            policy_name = (self.config_raw.get("policy", {}) or {}).get("name", "F_expected")
+            trace_id, full_spans = self._build_jaeger_trace(
+                cid=cid,
+                prompt=prompt,
+                cat_expected=cat_expected,
+                diff_tag=diff_tag,
+                policy_name=policy_name,
+                raw_stages=raw_stages,
+                total_tokens=prompt_tokens + output_tokens,
+                total_cost_usd=cost_router,
+                savings_pct=savings_pct,
+                has_error=False,
+                is_escalated=is_case_escalated,
+            )
 
             results.append(
                 CaseResult(
@@ -390,7 +547,8 @@ class BenchmarkEvaluator:
                     savings_usd=round(savings_usd, 6),
                     savings_pct=savings_pct,
                     is_aligned=is_aligned,
-                    trace_chain=trace_chain,
+                    trace_id=trace_id,
+                    trace_chain=full_spans,
                     hop_count=hop_count,
                     escalated=is_case_escalated,
                 )
@@ -417,8 +575,8 @@ class BenchmarkEvaluator:
                 "2_hops": sum(1 for r in results if r.hop_count >= 2),
             },
             "avg_classifier_ms": round(total_classifier_latency / max(1, len(results)), 2),
-            "avg_primary_ms": round(sum(r.trace_chain[1]["duration_ms"] for r in results if len(r.trace_chain) > 1) / max(1, len(results)), 2),
-            "avg_escalate_ms": round(sum(r.trace_chain[3]["duration_ms"] for r in results if len(r.trace_chain) > 3) / max(1, sum(1 for r in results if r.escalated)), 2) if any(r.escalated for r in results) else 0.0,
+            "avg_primary_ms": round(sum(s["duration_ms"] for r in results for s in r.trace_chain if s.get("stage_type") == "primary_model") / max(1, len(results)), 2),
+            "avg_escalate_ms": round(sum(s["duration_ms"] for r in results for s in r.trace_chain if s.get("stage_type") in ("escalate_model", "fallback_model", "retry_model")) / max(1, sum(1 for r in results if r.escalated)), 2) if any(r.escalated for r in results) else 0.0,
         }
 
         return BenchmarkSummary(
@@ -489,9 +647,9 @@ class BenchmarkEvaluator:
 
                 total_classifier_latency += lat_ms
 
-                trace_chain: list[dict] = []
+                raw_stages: list[dict] = []
                 dev_str = getattr(self.router.classifier, "actual_device", "mps").upper() if hasattr(self.router, "classifier") else "MPS"
-                trace_chain.append({
+                raw_stages.append({
                     "stage_index": 1,
                     "stage_type": "classifier",
                     "name": f"Laya 决策引擎 ({dev_str})",
@@ -573,7 +731,7 @@ class BenchmarkEvaluator:
                         real_response_text = ans_txt
                         real_p_tokens = pt
                         real_o_tokens = ct
-                        trace_chain.append({
+                        raw_stages.append({
                             "stage_index": 2,
                             "stage_type": "primary_model",
                             "name": chosen_name,
@@ -596,7 +754,7 @@ class BenchmarkEvaluator:
                                 chk_dur_ms = round((time.perf_counter() - t_chk_0) * 1000.0, 2)
                                 should_escalate = getattr(verdict, "escalate", False)
 
-                                trace_chain.append({
+                                raw_stages.append({
                                     "stage_index": 3,
                                     "stage_type": "verifier",
                                     "name": "Laya 质量验收裁决 (Adequacy Check)",
@@ -625,7 +783,7 @@ class BenchmarkEvaluator:
                                         chosen_name = expensive_model.name
                                         is_case_escalated = True
                                         hop_count = 2
-                                        trace_chain.append({
+                                        raw_stages.append({
                                             "stage_index": 4,
                                             "stage_type": "escalate_model",
                                             "name": expensive_model.name,
@@ -643,7 +801,7 @@ class BenchmarkEvaluator:
                     else:
                         # 首选模型调用失败或超时，记录并尝试容灾降级调度
                         err_msg = err
-                        trace_chain.append({
+                        raw_stages.append({
                             "stage_index": 2,
                             "stage_type": "primary_model",
                             "name": chosen_name,
@@ -674,7 +832,7 @@ class BenchmarkEvaluator:
                                 is_case_escalated = True
                                 hop_count = 2
                                 err_msg = ""
-                                trace_chain.append({
+                                raw_stages.append({
                                     "stage_index": 3,
                                     "stage_type": "fallback_model",
                                     "name": fallback_cand.name,
@@ -702,6 +860,21 @@ class BenchmarkEvaluator:
                 if on_progress:
                     on_progress(idx + 1, len(cases))
 
+                policy_name = (self.config_raw.get("policy", {}) or {}).get("name", "F_expected")
+                trace_id, full_spans = self._build_jaeger_trace(
+                    cid=cid,
+                    prompt=prompt,
+                    cat_expected=cat_expected,
+                    diff_tag=diff_tag,
+                    policy_name=policy_name,
+                    raw_stages=raw_stages,
+                    total_tokens=real_p_tokens + real_o_tokens,
+                    total_cost_usd=cost_router,
+                    savings_pct=savings_pct,
+                    has_error=bool(err_msg),
+                    is_escalated=is_case_escalated,
+                )
+
                 return CaseResult(
                     case_id=cid,
                     category=cat_expected,
@@ -728,7 +901,8 @@ class BenchmarkEvaluator:
                     real_latency_s=round(real_dur, 3),
                     real_response=real_response_text,
                     error=err_msg,
-                    trace_chain=trace_chain,
+                    trace_id=trace_id,
+                    trace_chain=full_spans,
                     hop_count=hop_count,
                     escalated=is_case_escalated,
                 )
@@ -764,8 +938,8 @@ class BenchmarkEvaluator:
                 "2_hops": sum(1 for r in results if r.hop_count >= 2),
             },
             "avg_classifier_ms": round(total_classifier_latency / max(1, len(results)), 2),
-            "avg_primary_ms": round(sum(r.trace_chain[1]["duration_ms"] for r in results if len(r.trace_chain) > 1) / max(1, len(results)), 2),
-            "avg_escalate_ms": round(sum(r.trace_chain[-1]["duration_ms"] for r in results if r.escalated and len(r.trace_chain) > 2) / max(1, sum(1 for r in results if r.escalated)), 2) if any(r.escalated for r in results) else 0.0,
+            "avg_primary_ms": round(sum(s["duration_ms"] for r in results for s in r.trace_chain if s.get("stage_type") == "primary_model") / max(1, len(results)), 2),
+            "avg_escalate_ms": round(sum(s["duration_ms"] for r in results for s in r.trace_chain if s.get("stage_type") in ("escalate_model", "fallback_model", "retry_model")) / max(1, sum(1 for r in results if r.escalated)), 2) if any(r.escalated for r in results) else 0.0,
         }
 
         return BenchmarkSummary(
