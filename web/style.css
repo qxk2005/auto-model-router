@@ -1014,3 +1014,69 @@ body {
   color: var(--primary);
 }
 
+/* Trace Timeline & Console Enhancements */
+.timing-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.timing-chip strong {
+  font-weight: 700;
+}
+
+.trace-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.trace-line:last-child {
+  margin-bottom: 0;
+}
+
+.trace-ts {
+  color: #38bdf8;
+  font-size: 11px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.trace-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.trace-tag.info {
+  background: rgba(2, 132, 199, 0.25);
+  color: #38bdf8;
+}
+
+.trace-tag.warn {
+  background: rgba(217, 119, 6, 0.25);
+  color: #fbbf24;
+}
+
+.trace-tag.error {
+  background: rgba(220, 38, 38, 0.25);
+  color: #f87171;
+}
+
+.trace-msg {
+  color: #f1f5f9;
+  flex: 1;
+}
+
+

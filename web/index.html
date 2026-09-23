@@ -135,14 +135,21 @@
                 <span class="quick-chip" onclick="setQuickPrompt('早上好，今天周五心情不错！')">日常闲聊</span>
                 <span class="quick-chip" onclick="setQuickPrompt('分析Linux内核在x86架构下的缺页异常COW中断处理全链路')">高深理论</span>
               </div>
-              <button class="btn btn-primary" id="btnTestRoute" onclick="runSingleTest()">
-                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                <span>立即预测路由决策</span>
-              </button>
+              <div class="test-actions-group" style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); cursor: pointer; user-select: none;">
+                  <input type="checkbox" id="chkEndToEndTest" style="cursor: pointer;">
+                  <span>🌐 包含端到端真实生成 (向上游发送请求并返回回答)</span>
+                </label>
+                <button class="btn btn-primary" id="btnTestRoute" onclick="runSingleTest()">
+                  <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                  <span>立即预测路由决策</span>
+                </button>
+              </div>
             </div>
 
-            <!-- Single Test Result Box -->
+            <!-- Single Test Result & Full Path Diagnostic Box -->
             <div class="result-box" id="singleTestResult" style="display: none;">
+              <!-- Top Row: Core Classification Metrics -->
               <div class="result-grid">
                 <div class="result-item">
                   <span class="r-label">识别类别 (Category)</span>
@@ -157,14 +164,64 @@
                   <span class="r-val" id="resStakes">--</span>
                 </div>
                 <div class="result-item">
-                  <span class="r-label">Laya 耗时 (MPS Latency)</span>
-                  <span class="r-val highlight-green" id="resLatency">-- ms</span>
+                  <span class="r-label">全程总耗时 (Total Duration)</span>
+                  <span class="r-val highlight-green" id="resTotalLatency">-- ms</span>
                 </div>
                 <div class="result-item full-width">
                   <span class="r-label">选定分配模型 (Target Route)</span>
                   <span class="r-val highlight-blue" id="resChosenModel">--</span>
                 </div>
               </div>
+
+              <!-- Full Path Stage Latency Timeline Breakdown -->
+              <div class="timeline-card" style="margin-top: 14px; background: #ffffff; border: 1px solid var(--card-border); border-radius: 10px; padding: 14px 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                  <span style="font-size: 13px; font-weight: 600; color: var(--text-main);">⏱️ 全路径阶段耗时拆解 (Stage Latency Breakdown)</span>
+                  <span style="font-size: 12px; color: var(--text-dim);" id="resModeBadge">模式: ⚡ 纯路由预测</span>
+                </div>
+                <div class="timeline-bar-wrap" style="height: 10px; background: #f1f5f9; border-radius: 9999px; overflow: hidden; display: flex; margin-bottom: 12px;" id="timelineProgressBar">
+                  <div id="barLaya" style="width: 100%; background: #0284c7;" title="Laya 提示词分析"></div>
+                  <div id="barScoring" style="width: 0%; background: #38bdf8;" title="路由策略仲裁"></div>
+                  <div id="barUpstream" style="width: 0%; background: #d97706;" title="上游端点网络与推理"></div>
+                  <div id="barVerify" style="width: 0%; background: #059669;" title="Laya 质量验收裁决"></div>
+                </div>
+                <div class="timing-chips-row" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                  <span class="timing-chip" style="background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd;">
+                    🧠 Laya 分析耗时: <strong id="chipLayaMs">-- ms</strong>
+                  </span>
+                  <span class="timing-chip" style="background: #f0f9ff; color: #0369a1; border: 1px solid #e0f2fe;">
+                    ⚡ 路由仲裁耗时: <strong id="chipScoringMs">-- ms</strong>
+                  </span>
+                  <span class="timing-chip" id="chipUpstreamWrap" style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; display: none;">
+                    🌐 上游端点网络/生成: <strong id="chipUpstreamMs">-- ms</strong>
+                  </span>
+                  <span class="timing-chip" id="chipVerifyWrap" style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; display: none;">
+                    🎯 质量验收裁决: <strong id="chipVerifyMs">-- ms</strong>
+                  </span>
+                </div>
+              </div>
+
+              <!-- End-to-End Reply Snippet (Optional) -->
+              <div id="endToEndSnippetCard" style="display: none; margin-top: 14px; background: #ffffff; border: 1px solid var(--card-border); border-radius: 10px; padding: 14px 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <span style="font-size: 13px; font-weight: 600; color: var(--text-main);">💬 目标模型生成回复片段 (Upstream Reply)</span>
+                  <span style="font-size: 11.5px; color: var(--text-muted);" id="resTokensUsage">Tokens: --</span>
+                </div>
+                <pre id="resReplySnippet" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; font-family: var(--font-mono); font-size: 12.5px; color: var(--text-main); max-height: 160px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; margin: 0;">--</pre>
+              </div>
+
+              <!-- Execution Trace Logs Details -->
+              <details class="trace-details" open style="margin-top: 14px; border: 1px solid var(--card-border); border-radius: 10px; background: #ffffff; overflow: hidden;">
+                <summary style="padding: 12px 16px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-main); display: flex; justify-content: space-between; align-items: center; user-select: none;">
+                  <span>🔍 执行追踪与全链路流水日志 (Execution Trace)</span>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="copyDiagnosticJson(event)" style="padding: 3px 10px; font-size: 11.5px;">📋 复制排障 JSON</button>
+                </summary>
+                <div style="padding: 0 16px 16px 16px;">
+                  <div class="trace-console" id="traceConsole" style="background: #0f172a; color: #f8fafc; border-radius: 8px; padding: 12px 14px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6; max-height: 220px; overflow-y: auto;">
+                    <!-- Populated dynamically -->
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
         </div>

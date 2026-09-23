@@ -350,6 +350,192 @@ async def probe_model_capability(req: ModelProbeRequest):
 
 
 # ---------------------------------------------------------------------------
+# Single Prompt Live Diagnostic & Routing Test API
+# ---------------------------------------------------------------------------
+class SingleTestRequest(BaseModel):
+    prompt: str
+    mode: str = "predict_only"  # "predict_only" | "end_to_end"
+    max_tokens: int = 128
+
+
+@app.post("/api/router/test-single")
+async def test_single_prompt(req: SingleTestRequest):
+    """Run a single prompt through routing with full trace logs and stage latency breakdown."""
+    prompt = req.prompt.strip()
+    if not prompt:
+        raise HTTPException(400, "prompt cannot be empty")
+
+    mode = req.mode or "predict_only"
+    max_tokens = max(1, min(req.max_tokens or 128, 4096))
+
+    logs: list[dict] = []
+    def add_log(level: str, msg: str, stage: str = "general"):
+        ts = time.strftime("%H:%M:%S") + f".{int((time.time() % 1) * 1000):03d}"
+        logs.append({
+            "timestamp": ts,
+            "level": level,
+            "stage": stage,
+            "message": msg
+        })
+
+    t_start = time.perf_counter()
+    add_log("INFO", f"接收到单次提示词测试请求 (模式: {'⚡ 纯路由预测' if mode == 'predict_only' else '🌐 端到端真实生成'}), 字符数: {len(prompt)}", "init")
+
+    router = ar_server.router
+    if router is None:
+        router = reload_router_system()
+
+    try:
+        t_route_0 = time.perf_counter()
+        route_res = router.route(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+        )
+        t_route_1 = time.perf_counter()
+    except Exception as exc:
+        add_log("ERROR", f"路由决策过程发生异常: {exc}", "router")
+        raise HTTPException(500, f"Router evaluation failed: {exc}")
+
+    clf = route_res.classification
+    laya_ms = round(route_res.classification_ms or (clf.latency_s * 1000.0 if clf else 0.0), 2)
+    scoring_ms = max(0.1, round((t_route_1 - t_route_0) * 1000.0 - laya_ms, 2))
+
+    chosen_model = route_res.model
+    provider_name = chosen_model.provider
+    chosen_name = chosen_model.name
+    upstream_id = getattr(chosen_model, "upstream_id", chosen_name)
+    decision_reason = route_res.reason
+
+    clf_dev = getattr(router.classifier, "actual_device", "mps") if hasattr(router, "classifier") else "mps"
+    add_log("INFO", f"Laya 本地模型 ({clf_dev.upper()} 加速) 特征分类完成: 类别={clf.category if clf else 'general'}, 难度={clf.difficulty if clf else 0.5:.3f}, 错误代价={clf.stakes if clf else 0.2:.3f}, 耗时={laya_ms}ms", "laya")
+    add_log("INFO", f"策略算法仲裁完成: 选定目标模型 [{chosen_name}] (提供商: {provider_name}, 算法排序耗时: {scoring_ms}ms)", "decision")
+    add_log("INFO", f"决策理由: {decision_reason}", "decision")
+
+    candidates_data = []
+    if route_res.explanation and getattr(route_res.explanation, "candidates", None):
+        for c in route_res.explanation.candidates:
+            candidates_data.append({
+                "model": c.model,
+                "cost_usd": getattr(c, "cost_usd", None),
+                "p_success": getattr(c, "p_success", None),
+                "expected_total_cost": getattr(c, "expected_total_cost", None),
+            })
+
+    upstream_data = None
+    upstream_ms = 0.0
+    verify_ms = 0.0
+
+    if mode == "end_to_end":
+        provider = ar_server.config.providers.get(provider_name)
+        if not provider:
+            add_log("ERROR", f"未找到提供商 [{provider_name}] 配置，无法进行端到端调用", "upstream")
+            upstream_data = {"status": "error", "error": f"未配置提供商 [{provider_name}]"}
+        else:
+            base_url = provider.base_url.rstrip("/")
+            headers = {"Content-Type": "application/json"}
+            api_key = provider.api_key
+            if api_key and api_key != "none":
+                headers["Authorization"] = f"Bearer {api_key}"
+            for k, v in provider.extra_headers.items():
+                headers[k] = v
+
+            payload = {
+                "model": upstream_id,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": max_tokens,
+            }
+
+            add_log("INFO", f"开始向上游提供商 [{provider_name}] 发起 HTTP POST 请求: {base_url}/chat/completions (目标模型: {upstream_id})", "upstream")
+            t_up_0 = time.perf_counter()
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+                    upstream_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        choices = data.get("choices") or []
+                        content = choices[0].get("message", {}).get("content", "") if choices else ""
+                        usage = data.get("usage") or {}
+                        add_log("INFO", f"上游响应成功: 状态码 200 OK, 网络往返及生成耗时 {upstream_ms}ms, 消耗 Token: prompt={usage.get('prompt_tokens', 0)}, completion={usage.get('completion_tokens', 0)}", "upstream")
+                        upstream_data = {
+                            "status": "ok",
+                            "http_status": 200,
+                            "latency_ms": upstream_ms,
+                            "reply_snippet": content[:300] + ("..." if len(content) > 300 else ""),
+                            "full_reply": content,
+                            "usage": usage,
+                        }
+
+                        if content and hasattr(router, "check"):
+                            t_chk_0 = time.perf_counter()
+                            add_log("INFO", "触发 Laya 质量验收判定 (Adequacy Verification)...", "verify")
+                            try:
+                                verdict = await asyncio.to_thread(router.check, route_res, prompt, content)
+                                verify_ms = round((time.perf_counter() - t_chk_0) * 1000.0, 2)
+                                add_log("INFO", f"Laya 质量判定完成: 满意度预估={getattr(verdict, 'p_adequate', 'N/A')}, 是否建议升级={getattr(verdict, 'escalate', False)}, 耗时={verify_ms}ms", "verify")
+                            except Exception as chk_e:
+                                add_log("WARN", f"Laya 质量判定跳过或异常: {chk_e}", "verify")
+
+                    else:
+                        err_text = resp.text[:200]
+                        add_log("ERROR", f"上游响应异常: HTTP {resp.status_code} - {err_text} (耗时 {upstream_ms}ms)", "upstream")
+                        upstream_data = {
+                            "status": "error",
+                            "http_status": resp.status_code,
+                            "latency_ms": upstream_ms,
+                            "error": f"HTTP {resp.status_code}: {err_text}",
+                        }
+            except httpx.TimeoutException:
+                upstream_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
+                add_log("ERROR", f"上游请求超时 (超过 30s)！端点地址: {base_url} 可能未就绪或正在排队", "upstream")
+                upstream_data = {
+                    "status": "timeout",
+                    "latency_ms": upstream_ms,
+                    "error": f"上游端点 {base_url} 连接超时 (30s)",
+                }
+            except Exception as e:
+                upstream_ms = round((time.perf_counter() - t_up_0) * 1000.0, 2)
+                add_log("ERROR", f"连接上游提供商发生网络异常: {str(e)}", "upstream")
+                upstream_data = {
+                    "status": "error",
+                    "latency_ms": upstream_ms,
+                    "error": str(e),
+                }
+
+    total_latency_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
+    add_log("INFO", f"全路径测试流程执行完毕, 全程总耗时: {total_latency_ms}ms", "done")
+
+    return {
+        "status": "ok",
+        "mode": mode,
+        "timing": {
+            "classifier_ms": laya_ms,
+            "route_scoring_ms": scoring_ms,
+            "upstream_request_ms": upstream_ms,
+            "verification_ms": verify_ms,
+            "total_latency_ms": total_latency_ms,
+        },
+        "classification": {
+            "category": clf.category if clf else "general",
+            "difficulty": round(clf.difficulty, 3) if clf else 0.5,
+            "stakes": round(clf.stakes, 3) if clf else 0.2,
+            "device": clf_dev,
+            "classifier_model": getattr(router.classifier, "model", "convaiinnovations/laya") if hasattr(router, "classifier") else "laya",
+        },
+        "decision": {
+            "chosen_model": chosen_name,
+            "provider": provider_name,
+            "upstream_id": upstream_id,
+            "policy": route_res.explanation.selection.policy if (route_res.explanation and hasattr(route_res.explanation, 'selection')) else "F_expected",
+            "reason": decision_reason,
+            "candidates": candidates_data,
+        },
+        "upstream_response": upstream_data,
+        "logs": logs,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Benchmark Test Cases API
 # ---------------------------------------------------------------------------
 @app.get("/api/cases")
