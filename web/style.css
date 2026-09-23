@@ -176,9 +176,22 @@ body {
 
 .sidebar-meta {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 3px;
   font-size: 11px;
   color: var(--text-dim);
+}
+
+.sidebar-meta .meta-row {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.sidebar-meta .vram-row {
+  color: var(--primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
 }
 
 /* Main Content */

@@ -45,7 +45,7 @@ function switchTab(tabId) {
   });
 
   const titles = {
-    monitor: ["网关状态与实时监控", "监测 Apple Silicon 本地 Laya 决策引擎与网关实时运行指标"],
+    monitor: ["网关状态与实时监控", "监测硬件加速本地 Laya 决策引擎与网关实时运行指标"],
     models: ["提供商与模型管理", "配置 OpenAI 兼容提供商矩阵及各级模型 Token 计费单价与可用性测试"],
     policy: ["Router 策略与 Laya 参数", "微调经济成本模型风险权重、缓存生命周期与 Laya 运行设备"],
     benchmark: ["测试中心与评估报告", "运行典型降本测试集，测算智能分流降本幅度并导出自包含 HTML 报告"],
@@ -69,9 +69,29 @@ async function refreshStatus() {
 
     const hwName = data.device_hardware || "本地运算";
     document.getElementById("hardwareName").textContent = hwName;
+
+    const memVal = data.memory_rss_mb;
+    const memStr = (typeof memVal === "number" && memVal > 0) ? `${memVal} MB` : "-- MB";
+    const uptimeStr = `${Math.round(data.uptime_seconds || 0)}s`;
+
+    let vramRowHtml = "";
+    if (data.cuda_available && data.cuda_vram_total_mb) {
+      const usedGb = (data.cuda_vram_used_mb / 1024).toFixed(1);
+      const totalGb = (data.cuda_vram_total_mb / 1024).toFixed(1);
+      vramRowHtml = `
+        <div class="meta-row vram-row" style="margin-top: 3px;">
+          <span>显存: ${usedGb}G/${totalGb}G</span>
+          <span>CUDA</span>
+        </div>
+      `;
+    }
+
     document.getElementById("sidebarMeta").innerHTML = `
-      <span>内存: ${data.memory_rss_mb || '--'} MB</span>
-      <span>运行: ${Math.round(data.uptime_seconds || 0)}s</span>
+      <div class="meta-row">
+        <span>内存: ${memStr}</span>
+        <span>运行: ${uptimeStr}</span>
+      </div>
+      ${vramRowHtml}
     `;
 
     // Dynamic Title & Badge Adaptation

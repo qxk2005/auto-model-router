@@ -157,16 +157,54 @@ async def get_system_status():
     clf = getattr(ar_server.router, "classifier", None)
     actual_dev = getattr(clf, "actual_device", accelerator)
     
-    # Process memory
+    # Process memory with multi-tier fallback (psutil -> Windows ctypes -> resource)
     rss_mb = 0.0
     try:
         import psutil
         rss_mb = round(psutil.Process().memory_info().rss / (1024 * 1024), 1)
     except Exception:
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                from ctypes import wintypes
+                class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                    _fields_ = [
+                        ("cb", wintypes.DWORD),
+                        ("PageFaultCount", wintypes.DWORD),
+                        ("PeakWorkingSetSize", ctypes.c_size_t),
+                        ("WorkingSetSize", ctypes.c_size_t),
+                        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                        ("PagefileUsage", ctypes.c_size_t),
+                        ("PeakPagefileUsage", ctypes.c_size_t),
+                    ]
+                counters = PROCESS_MEMORY_COUNTERS()
+                counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+                handle = ctypes.windll.kernel32.GetCurrentProcess()
+                if ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+                    rss_mb = round(counters.WorkingSetSize / (1024 * 1024), 1)
+            except Exception:
+                pass
+        else:
+            try:
+                import resource
+                rusage = resource.getrusage(resource.RUSAGE_SELF)
+                divisor = (1024 * 1024) if sys.platform == "darwin" else 1024
+                rss_mb = round(rusage.ru_maxrss / divisor, 1)
+            except Exception:
+                pass
+
+    # Detailed CUDA VRAM tracking
+    cuda_vram_used_mb = 0.0
+    cuda_vram_free_mb = 0.0
+    if cuda_ok:
         try:
-            import resource
-            rusage = resource.getrusage(resource.RUSAGE_SELF)
-            rss_mb = round(rusage.ru_maxrss / (1024 * 1024), 1)
+            free_b, total_b = torch.cuda.mem_get_info(0)
+            cuda_vram_mb = round(total_b / (1024 * 1024), 1)
+            cuda_vram_free_mb = round(free_b / (1024 * 1024), 1)
+            cuda_vram_used_mb = round((total_b - free_b) / (1024 * 1024), 1)
         except Exception:
             pass
 
@@ -179,6 +217,8 @@ async def get_system_status():
         "cuda_available": cuda_ok,
         "cuda_device_name": cuda_device_name,
         "cuda_vram_total_mb": cuda_vram_mb,
+        "cuda_vram_used_mb": cuda_vram_used_mb,
+        "cuda_vram_free_mb": cuda_vram_free_mb,
         "mps_available": mps_ok,
         "classifier_backend": clf_cfg.get("backend", "local"),
         "classifier_model": clf_cfg.get("model", "convaiinnovations/laya"),
