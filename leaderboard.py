@@ -255,11 +255,10 @@ DEFAULT_LEADERBOARD: list[dict[str, Any]] = [
 ]
 
 
-def normalize_elo(elo: float, min_elo: float = 1000.0, max_elo: float = 1400.0) -> float:
-    """将 Elo 分数线性归一化到 0.50 ~ 0.99 的能力评分区间."""
+def normalize_elo(elo: float, min_elo: float = 1000.0, max_elo: float = 1850.0) -> float:
+    """将 Elo 分数 (1000 ~ 1850) 线性归一化到 0.50 ~ 0.99 的能力评分区间."""
     val = (elo - min_elo) / (max_elo - min_elo)
-    # 限制在 0.50 ~ 0.99
-    scaled = 0.50 + val * 0.48
+    scaled = 0.50 + val * 0.49
     return round(max(0.40, min(0.99, scaled)), 2)
 
 
@@ -354,66 +353,115 @@ class LeaderboardManager:
         return results
 
     async def sync_from_huggingface(self) -> dict[str, Any]:
-        """在线从 HuggingFace datasets-server API 同步拉取最新排行榜数据."""
-        url = "https://datasets-server.huggingface.co/rows?dataset=lmarena-ai%2Fleaderboard-dataset&config=text&split=latest&offset=0&limit=100"
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            resp = await client.get(url, headers={"User-Agent": "Auto-LLM-Router/1.0"})
-            if resp.status_code != 200:
-                raise RuntimeError(f"HuggingFace API 返回错误: HTTP {resp.status_code} ({resp.text[:100]})")
+        """在线从 HuggingFace datasets-server API 并发拉取多子集全量排行榜数据 (覆盖最新 agent, webdev, text 评测)."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            tagged_tasks = []
+            # 1. 抓取最新的 Agent 评测子集 (包含最新 Claude Fable 5, GPT 6 Astra 等)
+            tagged_tasks.append(
+                ("agent", client.get("https://datasets-server.huggingface.co/rows?dataset=lmarena-ai%2Fleaderboard-dataset&config=agent&split=latest&offset=0&limit=100"))
+            )
+            # 2. 抓取最新的 WebDev 网页开发代码评测子集 (拉取前 5 页)
+            for off in range(0, 500, 100):
+                tagged_tasks.append(
+                    ("webdev", client.get(f"https://datasets-server.huggingface.co/rows?dataset=lmarena-ai%2Fleaderboard-dataset&config=webdev&split=latest&offset={off}&limit=100"))
+                )
+            # 3. 抓取最新的 Text 通用问答基准子集 (并发拉取 20 页，覆盖多达 2000 个模型快照)
+            for off in range(0, 2000, 100):
+                tagged_tasks.append(
+                    ("text", client.get(f"https://datasets-server.huggingface.co/rows?dataset=lmarena-ai%2Fleaderboard-dataset&config=text&split=latest&offset={off}&limit=100"))
+                )
 
-            data = resp.json()
-            rows = data.get("rows", [])
-            if not rows:
-                raise RuntimeError("HuggingFace 返回空数据集")
+            coros = [t[1] for t in tagged_tasks]
+            tags = [t[0] for t in tagged_tasks]
+            resps = await asyncio.gather(*coros, return_exceptions=True)
 
-            seen_models: dict[str, dict[str, Any]] = {}
-            # 保留已有模型的详细能力，更新 rating 与 rank
-            for r in rows:
-                row = r.get("row", {})
-                m_name = row.get("model_name")
-                if not m_name or m_name in seen_models:
+            merged: dict[str, dict[str, Any]] = {}
+
+            for tag, resp in zip(tags, resps):
+                if isinstance(resp, Exception) or resp.status_code != 200:
                     continue
+                rows = resp.json().get("rows", [])
+                for item in rows:
+                    r = item.get("row", {})
+                    m_raw = r.get("model_name")
+                    if not m_raw:
+                        continue
 
-                rating = float(row.get("rating", 1200.0))
-                rank = int(row.get("rank", 999))
-                org = row.get("organization", "Unknown")
-                lic = row.get("license", "Proprietary")
-                pub = row.get("leaderboard_publish_date", time.strftime("%Y-%m-%d"))
+                    # 标准化去重 Key (去除大小写及特殊字符)
+                    key = re.sub(r"[^a-zA-Z0-9]", "", m_raw).lower()
 
-                # 映射到四维评分
-                base_norm = normalize_elo(rating)
-                prof = {
-                    "coding": base_norm,
-                    "math": round(max(0.4, base_norm - 0.02), 2),
-                    "reasoning": base_norm,
-                    "general": base_norm,
+                    # 提取或换算 Elo 评分
+                    if "rating" in r and float(r["rating"]) > 0:
+                        rating = float(r["rating"])
+                    elif "score" in r and r["score"] is not None:
+                        # 将 Agent/BT score (-0.15 ~ +0.15) 映射转换为等价的 Arena Elo (1100 ~ 1520)
+                        rating = round(1350.0 + float(r["score"]) * 1150.0, 1)
+                    else:
+                        rating = 1200.0
+
+                    org = r.get("organization") or "Unknown"
+                    lic = r.get("license") or "Proprietary"
+                    pub = r.get("leaderboard_publish_date", time.strftime("%Y-%m-%d"))
+
+                    # 美化展示名称
+                    if "(" in m_raw or " " in m_raw:
+                        display_name = m_raw
+                    else:
+                        display_name = m_raw.replace("-", " ").title()
+
+                    clean_model_id = m_raw.lower().replace(" ", "-").replace("(", "").replace(")", "").replace(":", "-")
+
+                    if key not in merged:
+                        merged[key] = {
+                            "model_name": clean_model_id,
+                            "display_name": display_name,
+                            "organization": org.capitalize() if org else "Unknown",
+                            "license": lic,
+                            "rating_overall": round(rating, 1),
+                            "rank_overall": 999,
+                            "rating_coding": round(rating, 1) if tag == "webdev" else round(max(1100.0, rating - 15.0), 1),
+                            "rating_hard": round(rating, 1),
+                            "rating_math": round(max(1100.0, rating - 20.0), 1),
+                            "vote_count": int(r.get("vote_count", r.get("session_count", r.get("observation_count", 0)))),
+                            "publish_date": pub,
+                        }
+                    else:
+                        # 若已有该模型记录，更新最高分与特定学科分数
+                        if rating > merged[key]["rating_overall"]:
+                            merged[key]["rating_overall"] = round(rating, 1)
+                        if tag == "webdev":
+                            merged[key]["rating_coding"] = round(rating, 1)
+                        if tag == "agent":
+                            merged[key]["rating_hard"] = round(rating, 1)
+
+            if not merged:
+                raise RuntimeError("Hugging Face API 无法返回有效评测记录，请检查网络连接")
+
+            # 按评分从高到低重新编排全局真实排名并生成归一化画像
+            sorted_models = sorted(merged.values(), key=lambda x: x["rating_overall"], reverse=True)
+            for idx, m in enumerate(sorted_models):
+                m["rank_overall"] = idx + 1
+                ov_norm = normalize_elo(m["rating_overall"])
+                cd_norm = normalize_elo(m.get("rating_coding", m["rating_overall"]))
+                hd_norm = normalize_elo(m.get("rating_hard", m["rating_overall"]))
+                mt_norm = normalize_elo(m.get("rating_math", m["rating_overall"]))
+
+                m["normalized_profile"] = {
+                    "coding": cd_norm,
+                    "math": mt_norm,
+                    "reasoning": hd_norm,
+                    "general": ov_norm,
                 }
 
-                seen_models[m_name] = {
-                    "model_name": m_name,
-                    "display_name": m_name.replace("-", " ").title(),
-                    "organization": org.capitalize() if org else "Unknown",
-                    "license": lic,
-                    "rating_overall": round(rating, 1),
-                    "rank_overall": rank,
-                    "rating_coding": round(rating, 1),
-                    "rating_hard": round(rating, 1),
-                    "rating_math": round(rating, 1),
-                    "vote_count": int(row.get("vote_count", 0)),
-                    "normalized_profile": prof,
-                    "publish_date": pub,
-                }
-
-            if seen_models:
-                self._cache = sorted(list(seen_models.values()), key=lambda x: x["rank_overall"])
-                self._last_updated = time.strftime("%Y-%m-%d %H:%M:%S")
-                self._save()
+            self._cache = sorted_models
+            self._last_updated = time.strftime("%Y-%m-%d %H:%M:%S")
+            self._save()
 
             return {
                 "status": "ok",
                 "synced_count": len(self._cache),
                 "last_updated": self._last_updated,
-                "message": f"成功同步并更新 {len(self._cache)} 款权威模型评测数据",
+                "message": f"成功同步并更新 {len(self._cache)} 款权威模型全量评测（含 Claude Fable 5 系列及最新旗舰）",
             }
 
 

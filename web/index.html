@@ -587,9 +587,12 @@
                 </div>
                 <p style="margin-top: 4px;">深度对照当前所有路由候选模型的能力画像评分、Token 计费单价、锚定权威 Elo 分以及综合性价比指数，助您精准把控分流策略经济性。</p>
               </div>
-              <div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <button class="btn btn-primary btn-sm" onclick="applyAllLeaderboardRatings()" id="applyAllLeaderboardBtn">
+                  <span>⚡ 一键将权威评分同步至路由</span>
+                </button>
                 <button class="btn btn-secondary btn-sm" onclick="switchTab('models')">
-                  <span>⚙️ 管理与添加路由候选模型</span>
+                  <span>⚙️ 管理候选模型</span>
                 </button>
               </div>
             </div>

@@ -834,6 +834,121 @@ async def sync_leaderboard_data():
         }
 
 
+class ApplyLeaderboardRequest(BaseModel):
+    model_name: str
+    target_leaderboard_model: str | None = None
+
+
+@app.post("/api/leaderboard/apply_to_model")
+async def apply_leaderboard_to_model(req: ApplyLeaderboardRequest):
+    """将指定权威模型的评测能力分数一键应用并持久化到路由模型配置中."""
+    cfg = get_current_raw_config()
+    models = cfg.get("models", [])
+    target = None
+    for m in models:
+        if m.get("name") == req.model_name:
+            target = m
+            break
+
+    if not target:
+        raise HTTPException(status_code=404, detail=f"未找到路由候选模型: {req.model_name}")
+
+    # 匹配目标权威模型
+    lb_match = None
+    if req.target_leaderboard_model:
+        all_lb = leaderboard_mgr.get_all().get("models", [])
+        for item in all_lb:
+            if item.get("model_name") == req.target_leaderboard_model or item.get("display_name") == req.target_leaderboard_model:
+                lb_match = item
+                break
+
+    if not lb_match:
+        matches = leaderboard_mgr.match_model(target.get("upstream_id") or target.get("name"))
+        if matches:
+            lb_match = matches[0]
+
+    if not lb_match:
+        raise HTTPException(status_code=400, detail="未找到对应的权威榜单评测数据")
+
+    prof = lb_match.get("normalized_profile", {})
+    c_coding = int(round(prof.get("coding", 0.85) * 100))
+    c_math = int(round(prof.get("math", 0.85) * 100))
+    c_reasoning = int(round(prof.get("reasoning", 0.85) * 100))
+    c_general = int(round(prof.get("general", 0.85) * 100))
+
+    if "capability" not in target:
+        target["capability"] = {}
+
+    target["capability"]["coding"] = c_coding
+    target["capability"]["math"] = c_math
+    target["capability"]["reasoning"] = c_reasoning
+    target["capability"]["general"] = c_general
+    target["capability"]["knowledge"] = c_general
+    target["capability"]["summarisation"] = c_general
+    target["capability"]["agentic"] = c_reasoning
+    target["capability"]["tool_use"] = c_coding
+
+    save_config(cfg)
+    reload_router_system()
+
+    return {
+        "status": "ok",
+        "message": f"已将权威模型 [{lb_match.get('display_name')}] (Elo {lb_match.get('rating_overall')}) 的能力评分同步至路由模型 [{req.model_name}]",
+        "applied_model": req.model_name,
+        "matched_leaderboard": lb_match.get("display_name"),
+        "elo": lb_match.get("rating_overall"),
+        "capability": target["capability"],
+    }
+
+
+@app.post("/api/leaderboard/apply_all_candidates")
+async def apply_all_candidates_leaderboard():
+    """批量将所有当前配置的候选模型与权威评测榜单进行匹配并一键校准能力参数."""
+    cfg = get_current_raw_config()
+    models = cfg.get("models", [])
+    updated = []
+
+    for target in models:
+        matches = leaderboard_mgr.match_model(target.get("upstream_id") or target.get("name"))
+        if not matches:
+            continue
+        lb_match = matches[0]
+        prof = lb_match.get("normalized_profile", {})
+        c_coding = int(round(prof.get("coding", 0.85) * 100))
+        c_math = int(round(prof.get("math", 0.85) * 100))
+        c_reasoning = int(round(prof.get("reasoning", 0.85) * 100))
+        c_general = int(round(prof.get("general", 0.85) * 100))
+
+        if "capability" not in target:
+            target["capability"] = {}
+
+        target["capability"]["coding"] = c_coding
+        target["capability"]["math"] = c_math
+        target["capability"]["reasoning"] = c_reasoning
+        target["capability"]["general"] = c_general
+        target["capability"]["knowledge"] = c_general
+        target["capability"]["summarisation"] = c_general
+        target["capability"]["agentic"] = c_reasoning
+        target["capability"]["tool_use"] = c_coding
+
+        updated.append({
+            "model": target.get("name"),
+            "matched_leaderboard": lb_match.get("display_name"),
+            "elo": lb_match.get("rating_overall"),
+            "capability": target["capability"],
+        })
+
+    if updated:
+        save_config(cfg)
+        reload_router_system()
+
+    return {
+        "status": "ok",
+        "message": f"成功为 {len(updated)} 个路由候选模型一键同步最新权威评测能力基准",
+        "updated_models": updated,
+    }
+
+
 # ---------------------------------------------------------------------------
 # WebUI Static Frontend
 # ---------------------------------------------------------------------------

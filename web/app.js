@@ -1678,14 +1678,22 @@ function renderCandidateComparisonCards(comparisons) {
     const prices = m.prices || {};
     const cap = m.capability || {};
 
-    const normCoding = ((cap.coding || 85) / 100).toFixed(2);
-    const normMath = ((cap.math || 85) / 100).toFixed(2);
-    const normRea = ((cap.reasoning || 85) / 100).toFixed(2);
-    const normGen = ((cap.general || 85) / 100).toFixed(2);
+    const hasLbProf = lb && lb.normalized_profile;
+    const prof = hasLbProf ? lb.normalized_profile : null;
+
+    // 权威实测分数优先，若未匹配到权威则回退到本地配置分
+    const normCoding = prof && prof.coding !== undefined ? prof.coding.toFixed(2) : ((cap.coding || 85) / 100).toFixed(2);
+    const normMath = prof && prof.math !== undefined ? prof.math.toFixed(2) : ((cap.math || 85) / 100).toFixed(2);
+    const normRea = prof && prof.reasoning !== undefined ? prof.reasoning.toFixed(2) : ((cap.reasoning || 85) / 100).toFixed(2);
+    const normGen = prof && prof.general !== undefined ? prof.general.toFixed(2) : ((cap.general || 85) / 100).toFixed(2);
 
     const avgCap = ((parseFloat(normCoding) + parseFloat(normMath) + parseFloat(normRea) + parseFloat(normGen)) / 4).toFixed(2);
     const blendPrice = isFree ? 0 : ((prices.input || 0) * 0.7 + (prices.output || 0) * 0.3);
     const valueIndex = isFree ? "极高 (零成本)" : (blendPrice > 0 ? (avgCap / blendPrice * 10).toFixed(1) : "高");
+
+    const badgeHtml = hasLbProf 
+      ? `<span style="background: #e0f2fe; color: #0284c7; font-size: 11px; padding: 2px 7px; border-radius: 9999px; font-weight: 600;">权威实测基准</span>`
+      : `<span style="background: #f1f5f9; color: #64748b; font-size: 11px; padding: 2px 7px; border-radius: 9999px; font-weight: 600;">本地自定义</span>`;
 
     const card = document.createElement("div");
     card.className = "candidate-card";
@@ -1701,7 +1709,10 @@ function renderCandidateComparisonCards(comparisons) {
       </div>
 
       <div style="background: #f8fafc; border-radius: 8px; padding: 8px 10px; font-size: 11.5px; border: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center;">
-        <span>权威锚定: <strong>${lb ? (lb.display_name || lb.model_name) : '通用基准'}</strong></span>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <span>权威锚定: <strong>${lb ? (lb.display_name || lb.model_name) : '通用基准'}</strong></span>
+          ${badgeHtml}
+        </div>
         <span style="font-weight: 700; color: var(--primary); font-family: var(--font-mono);">Elo ${lb ? Math.round(lb.rating_overall) : '--'}</span>
       </div>
 
@@ -1728,10 +1739,14 @@ function renderCandidateComparisonCards(comparisons) {
         </div>
       </div>
 
-      <div class="candidate-card-footer">
+      <div class="candidate-card-footer" style="padding-bottom: 8px;">
         <span>综合能力: <strong style="color:var(--primary);">${avgCap}</strong></span>
         <span>综合性价比: <strong style="color:#059669;">${valueIndex}</strong></span>
       </div>
+
+      <button class="btn btn-secondary btn-sm" style="width: 100%; font-size: 11.5px; padding: 6px 10px; display: flex; align-items: center; justify-content: center; gap: 5px;" onclick="applyLeaderboardToModel('${m.name}', '${lb ? (lb.model_name || '') : ''}')">
+        <span>⚡ 同步此权威评分至路由配置</span>
+      </button>
     `;
     container.appendChild(card);
   });
@@ -1873,3 +1888,48 @@ function quickAdoptLeaderboardModel(modelName) {
     applyArenaScoresToInputs();
   });
 }
+
+async function applyLeaderboardToModel(modelName, targetLbModel) {
+  try {
+    showToast(`正在将权威基准同步至模型 [${modelName}]...`, "info");
+    const res = await fetch("/api/leaderboard/apply_to_model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model_name: modelName, target_leaderboard_model: targetLbModel || null }),
+    });
+    const data = await res.json();
+    if (res.ok && data.status === "ok") {
+      showToast(data.message || "模型能力已同步权威基准！", "success");
+      loadLeaderboardData();
+      if (typeof loadConfig === "function") loadConfig();
+    } else {
+      showToast(`同步失败: ${data.detail || data.message || "未知错误"}`, "danger");
+    }
+  } catch (err) {
+    showToast(`请求异常: ${err.message}`, "danger");
+  }
+}
+
+async function applyAllLeaderboardRatings() {
+  const btn = document.getElementById("applyAllLeaderboardBtn");
+  const origText = btn ? btn.innerHTML : "";
+  if (btn) btn.innerHTML = "<span>⏳ 同步中...</span>";
+
+  try {
+    showToast("正在一键将权威评测基准同步至所有候选模型...", "info");
+    const res = await fetch("/api/leaderboard/apply_all_candidates", { method: "POST" });
+    const data = await res.json();
+    if (res.ok && data.status === "ok") {
+      showToast(data.message || "所有模型已成功同步权威评测能力！", "success");
+      loadLeaderboardData();
+      if (typeof loadConfig === "function") loadConfig();
+    } else {
+      showToast(`同步失败: ${data.detail || data.message || "未知错误"}`, "danger");
+    }
+  } catch (err) {
+    showToast(`请求异常: ${err.message}`, "danger");
+  } finally {
+    if (btn) btn.innerHTML = origText;
+  }
+}
+
