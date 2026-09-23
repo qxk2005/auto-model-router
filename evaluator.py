@@ -83,6 +83,7 @@ class BenchmarkSummary:
     results: list[CaseResult]
     currency_symbol: str = "¥"
     usd_cny_rate: float = 7.20
+    config_snapshot: dict[str, Any] = field(default_factory=dict)
 
 
 class BenchmarkEvaluator:
@@ -95,6 +96,80 @@ class BenchmarkEvaluator:
         curr_cfg = self.config_raw.get("policy", {}).get("currency", {}) if isinstance(self.config_raw, dict) else {}
         self.currency_symbol = "¥" if curr_cfg.get("base", "CNY") == "CNY" else "$"
         self.usd_cny_rate = float(curr_cfg.get("usd_cny_rate", 7.20))
+
+    def _build_config_snapshot(self) -> dict[str, Any]:
+        """Snapshot current router policy, Laya settings and active models catalog."""
+        policy_cfg = self.config_raw.get("policy", {}) if isinstance(self.config_raw, dict) else {}
+        laya_cfg = policy_cfg.get("laya", {})
+        curr_cfg = policy_cfg.get("currency", {})
+        policy_name = policy_cfg.get("name", "F_expected")
+        
+        policy_labels = {
+            "F_expected": "F_expected (期望成本最小化：综合失误惩罚与验证决策)",
+            "B_naive": "B_naive (基础朴素：满足预测成功门槛的最廉价模型)",
+            "cheapest": "cheapest (纯贪心极简：始终选用目录中最低单价模型)",
+            "best": "best (绝对旗舰：始终选用目录中最高能力画像模型)",
+        }
+        policy_display = policy_labels.get(policy_name, policy_name)
+
+        device = laya_cfg.get("device", "mps")
+        if device == "mps":
+            device_display = "Apple Metal (MPS) GPU 加速 [推荐 M4 Max]"
+        elif device == "cpu":
+            device_display = "CPU (纯处理器运算)"
+        else:
+            device_display = str(device)
+
+        backend = policy_cfg.get("classifier", {}).get("backend", "local")
+        backend_display = "local (本地 Laya 引擎)" if backend == "local" else ("typesafe (云端分类器)" if backend == "typesafe" else "mock (静态测试桩)")
+
+        router_params = {
+            "policy_name": policy_name,
+            "policy_display": policy_display,
+            "usd_cny_rate": self.usd_cny_rate,
+            "currency_symbol": self.currency_symbol,
+            "currency_base": curr_cfg.get("base", "CNY"),
+            "stakes_usd": float(policy_cfg.get("stakes_usd", 2.0)),
+            "detect_probability": float(policy_cfg.get("detect_probability", 0.6)),
+            "failure_cost_multiplier": float(policy_cfg.get("failure_cost_multiplier", 1.0)),
+            "remaining_turns_horizon": int(policy_cfg.get("remaining_turns_horizon", 3)),
+        }
+
+        laya_params = {
+            "classifier_backend": backend,
+            "classifier_backend_display": backend_display,
+            "device": device,
+            "device_display": device_display,
+            "checkpoint": laya_cfg.get("checkpoint", "convaiinnovations/laya"),
+            "subfolder": laya_cfg.get("subfolder", "multilingual"),
+            "request_chars_cap": int(policy_cfg.get("request_chars_cap", 6000)),
+            "hardware_tag": "Apple Silicon M4 Max (Metal MPS) [ACTIVE]",
+        }
+
+        active_models = []
+        for m in self.catalog.models:
+            if getattr(m, "launch_only", False):
+                continue
+            is_free = getattr(m, "free", False) or (m.prices and getattr(m.prices, "is_free", False))
+            p_in = getattr(m.prices, "input", 0.0) if m.prices else 0.0
+            p_out = getattr(m.prices, "output", 0.0) if m.prices else 0.0
+            active_models.append({
+                "name": m.name,
+                "provider": getattr(m, "provider", "none"),
+                "upstream_id": getattr(m, "upstream_id", m.name),
+                "context_tokens": getattr(m, "context_tokens", 128000),
+                "is_free": is_free,
+                "input_cny": p_in,
+                "output_cny": p_out,
+                "input_usd": round(p_in / self.usd_cny_rate, 4) if self.usd_cny_rate > 0 else 0.0,
+                "output_usd": round(p_out / self.usd_cny_rate, 4) if self.usd_cny_rate > 0 else 0.0,
+            })
+
+        return {
+            "router_params": router_params,
+            "laya_params": laya_params,
+            "active_models": active_models,
+        }
 
     def _get_baseline_models(self) -> tuple[ModelInfo | None, ModelInfo | None]:
         """Find the most expensive (frontier) and cheapest (local/free) models in catalog."""
@@ -225,6 +300,7 @@ class BenchmarkEvaluator:
             category_breakdown=cat_stats,
             currency_symbol=self.currency_symbol,
             usd_cny_rate=self.usd_cny_rate,
+            config_snapshot=self._build_config_snapshot(),
             results=results,
         )
 
@@ -404,6 +480,7 @@ class BenchmarkEvaluator:
             category_breakdown=cat_stats,
             currency_symbol=self.currency_symbol,
             usd_cny_rate=self.usd_cny_rate,
+            config_snapshot=self._build_config_snapshot(),
             results=list(results),
         )
 

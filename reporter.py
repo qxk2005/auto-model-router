@@ -50,6 +50,156 @@ class ReportGenerator:
         cur_sym = getattr(summary, "currency_symbol", "¥")
         usd_rate = getattr(summary, "usd_cny_rate", 7.20)
 
+        # Build Config Snapshot Section
+        snapshot = getattr(summary, "config_snapshot", {}) or {}
+        router_params = snapshot.get("router_params", {})
+        laya_params = snapshot.get("laya_params", {})
+        active_models = snapshot.get("active_models", [])
+
+        snapshot_html = ""
+        if router_params or laya_params or active_models:
+            policy_disp = router_params.get("policy_display", router_params.get("policy_name", "F_expected"))
+            rate_val = router_params.get("usd_cny_rate", usd_rate)
+            stakes_val = router_params.get("stakes_usd", 2.0)
+            detect_val = router_params.get("detect_probability", 0.6)
+            mult_val = router_params.get("failure_cost_multiplier", 1.0)
+            turns_val = router_params.get("remaining_turns_horizon", 3)
+
+            dev_disp = laya_params.get("device_display", "Apple Metal (MPS) GPU 加速 [推荐 M4 Max]")
+            backend_disp = laya_params.get("classifier_backend_display", "local (本地 Laya 引擎)")
+            ckpt_val = laya_params.get("checkpoint", "convaiinnovations/laya")
+            subfolder_val = laya_params.get("subfolder", "multilingual")
+            chars_val = laya_params.get("request_chars_cap", 6000)
+
+            models_rows = []
+            for m in active_models:
+                m_name = m.get("name", "")
+                m_prov = m.get("provider", "none")
+                m_up = m.get("upstream_id", m_name)
+                is_free = m.get("is_free", False)
+                p_in_cny = m.get("input_cny", 0.0)
+                p_out_cny = m.get("output_cny", 0.0)
+                p_in_usd = m.get("input_usd", 0.0)
+                p_out_usd = m.get("output_usd", 0.0)
+                ctx_k = int(m.get("context_tokens", 128000) / 1000)
+
+                if is_free:
+                    price_str = '<span style="color:#059669; font-weight:600;">¥0.00 / 免费 (0 成本)</span>'
+                else:
+                    price_str = f"输入: ¥{p_in_cny} (${p_in_usd:.4f}) / 输出: ¥{p_out_cny} (${p_out_usd:.4f})"
+
+                models_rows.append(f"""
+                <tr>
+                  <td><strong style="color:var(--primary); font-family:var(--font-mono);">{m_name}</strong></td>
+                  <td><span class="snapshot-badge snapshot-badge-blue">{m_prov}</span></td>
+                  <td style="font-family:var(--font-mono); color:var(--text-muted);">{m_up}</td>
+                  <td>{ctx_k}k</td>
+                  <td>{price_str}</td>
+                </tr>
+                """)
+
+            models_table_body = "".join(models_rows)
+
+            snapshot_html = f"""
+    <!-- Runtime Configuration & Environment Snapshot -->
+    <section class="snapshot-panel">
+      <div class="snapshot-header">
+        <div class="panel-title">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+          <span>评测运行配置与环境快照 (Runtime Configuration Snapshot)</span>
+        </div>
+        <span style="font-size: 12px; color: var(--text-muted);">以下参数与模型矩阵在本次测试运行前已实时固化</span>
+      </div>
+
+      <div class="snapshot-grid">
+        <!-- Box 1: Router Policy Params -->
+        <div class="snapshot-box">
+          <div class="snapshot-box-title">
+            <span>🧠 Router 路由决策策略与经济学超参数</span>
+          </div>
+          <div class="snapshot-kv-list">
+            <div class="snapshot-kv-item" style="grid-column: span 2;">
+              <span class="snapshot-k">当前生效决策策略 (Policy Name)</span>
+              <span class="snapshot-v" style="color: var(--primary);">{policy_disp}</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">基准换算汇率 (USD/CNY)</span>
+              <span class="snapshot-v">1 USD = {rate_val} CNY</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">未捕获错误故障惩罚 (Stakes)</span>
+              <span class="snapshot-v">${stakes_val} USD</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">错误被及时发现概率 (Detect Prob)</span>
+              <span class="snapshot-v">{detect_val}</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">失败成本倍率 (Multiplier)</span>
+              <span class="snapshot-v">{mult_val}x</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">会话预期剩余轮次 (Turns)</span>
+              <span class="snapshot-v">{turns_val} 轮</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Box 2: Laya Engine & Hardware Params -->
+        <div class="snapshot-box">
+          <div class="snapshot-box-title">
+            <span>⚡ Laya 分类器与硬件加速配置</span>
+          </div>
+          <div class="snapshot-kv-list">
+            <div class="snapshot-kv-item" style="grid-column: span 2;">
+              <span class="snapshot-k">硬件加速设备 (Hardware Device)</span>
+              <span class="snapshot-v"><span class="snapshot-badge snapshot-badge-green">{dev_disp}</span></span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">分类器后端 (Backend)</span>
+              <span class="snapshot-v">{backend_disp}</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">Checkpoint 权重分支</span>
+              <span class="snapshot-v">{ckpt_val} ({subfolder_val})</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">提示词截断字符上限 (Cap)</span>
+              <span class="snapshot-v">{chars_val} 字符</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">推理加速架构</span>
+              <span class="snapshot-v">Metal MPS Non-Autoregressive</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Box 3: Active Routing Candidates Catalog Matrix -->
+      <div class="snapshot-models-section">
+        <div class="snapshot-models-title">
+          <span>📋 本次测试参与路由的候选模型目录矩阵 (Active Candidates: {len(active_models)} 个)</span>
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="snapshot-models-table">
+            <thead>
+              <tr>
+                <th>模型名称</th>
+                <th>所属提供商</th>
+                <th>上游端点模型 ID</th>
+                <th>上下文上限</th>
+                <th>计费单价 (每百万 Token)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {models_table_body}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    """
+
         template = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -168,6 +318,121 @@ class ReportGenerator:
       font-size: 12px;
       color: var(--text-muted);
       margin-top: 6px;
+    }}
+
+    /* Snapshot Configuration Panel */
+    .snapshot-panel {{
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 22px;
+      box-shadow: var(--card-shadow);
+      margin-bottom: 28px;
+    }}
+    .snapshot-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }}
+    .snapshot-grid {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-bottom: 20px;
+    }}
+    @media (max-width: 860px) {{
+      .snapshot-grid {{ grid-template-columns: 1fr; }}
+    }}
+    .snapshot-box {{
+      background: #f8fafc;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 16px 18px;
+    }}
+    .snapshot-box-title {{
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }}
+    .snapshot-kv-list {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 14px;
+      font-size: 12.5px;
+    }}
+    @media (max-width: 600px) {{
+      .snapshot-kv-list {{ grid-template-columns: 1fr; }}
+    }}
+    .snapshot-kv-item {{
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }}
+    .snapshot-k {{
+      color: var(--text-muted);
+      font-size: 11.5px;
+    }}
+    .snapshot-v {{
+      font-weight: 600;
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      word-break: break-all;
+    }}
+    .snapshot-badge {{
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11.5px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }}
+    .snapshot-badge-blue {{
+      background: #e0f2fe;
+      color: #0369a1;
+      border: 1px solid #bae6fd;
+    }}
+    .snapshot-badge-green {{
+      background: #ecfdf5;
+      color: #047857;
+      border: 1px solid #a7f3d0;
+    }}
+    .snapshot-models-section {{
+      background: #ffffff;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }}
+    .snapshot-models-title {{
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }}
+    .snapshot-models-table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }}
+    .snapshot-models-table th, .snapshot-models-table td {{
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid #f1f5f9;
+    }}
+    .snapshot-models-table th {{
+      background: #f8fafc;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 11.5px;
     }}
 
     /* Charts Section */
@@ -382,6 +647,8 @@ class ReportGenerator:
         <div class="kpi-sub">总测试用例数: {summary.total_cases} 条 (汇率: 1 USD = {usd_rate} CNY)</div>
       </div>
     </section>
+
+    {snapshot_html}
 
     <!-- Visual Charts Row -->
     <div class="charts-row">
