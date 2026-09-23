@@ -31,6 +31,7 @@ caps how much of any field is sent at all.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
@@ -38,6 +39,8 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 ENDPOINT = os.environ.get("AUTO_ROUTER_JEV_URL", "https://api.typesafe.ai/v1/systemone")
 MODEL = os.environ.get("AUTO_ROUTER_JEV_MODEL", "jev-latest")
@@ -480,11 +483,24 @@ class LocalLayaClassifier:
 
     def _resolve_device(self) -> str:
         import torch
-        if self.device_pref in ("mps", "auto"):
+        pref = (self.device_pref or "auto").lower()
+
+        if pref == "cuda":
+            if torch.cuda.is_available():
+                return "cuda"
+            logger.warning("CUDA requested but not available; checking other accelerators")
+        elif pref == "mps":
             if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 return "mps"
-        if self.device_pref == "cuda" and torch.cuda.is_available():
+            logger.warning("MPS requested but not available; checking other accelerators")
+        elif pref == "cpu":
+            return "cpu"
+
+        # "auto" or fallback order: CUDA (NVIDIA) -> MPS (Apple) -> CPU
+        if torch.cuda.is_available():
             return "cuda"
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return "mps"
         return "cpu"
 
     def _load(self):
@@ -506,12 +522,22 @@ class LocalLayaClassifier:
                     else:
                         base_model = self.model
 
-                    self._agent = laya.load(base_model, device=dev, subfolder=sub)
-                    self.actual_device = str(getattr(self._agent, "device", dev))
+                    try:
+                        self._agent = laya.load(base_model, device=dev, subfolder=sub)
+                        self.actual_device = str(getattr(self._agent, "device", dev))
+                    except (getattr(torch.cuda, "OutOfMemoryError", RuntimeError), RuntimeError) as e:
+                        if dev == "cuda":
+                            logger.warning("Laya CUDA load failed with OOM/error (%s); falling back to CPU", e)
+                            dev = "cpu"
+                            torch.set_num_threads(self.threads)
+                            self._agent = laya.load(base_model, device="cpu", subfolder=sub)
+                            self.actual_device = "cpu"
+                        else:
+                            raise
         return self._agent
 
     def warmup(self):
-        """Pre-warm the model on Apple Silicon MPS to eliminate cold-start delay."""
+        """Pre-warm the model on GPU (CUDA / Apple Silicon MPS) to eliminate cold-start delay."""
         try:
             self("Hello, world!")
         except Exception:
@@ -577,7 +603,7 @@ class LocalLayaClassifier:
 def classifier_from_config(policy: dict | None):
     """Build the selected classifier backend from ``policy.classifier``.
 
-    ``local`` uses Laya on MPS/CPU, ``hosted`` uses the existing TypeSafe/Jev API,
+    ``local`` uses Laya on CUDA/MPS/CPU, ``hosted`` uses the existing TypeSafe/Jev API,
     and ``heuristic`` disables model inference.
     """
     cfg = (policy or {}).get("classifier") or {}
@@ -587,7 +613,7 @@ def classifier_from_config(policy: dict | None):
     if backend == "local":
         model_name = str(cfg.get("model") or "convaiinnovations/laya")
         threads = int(cfg.get("threads") or 4)
-        device = str(cfg.get("device") or "mps")
+        device = str(cfg.get("device") or "auto")
         subfolder = cfg.get("subfolder", "multilingual")
         return LocalLayaClassifier(model=model_name, threads=threads, device=device, subfolder=subfolder)
     if backend in {"hosted", "jev"}:

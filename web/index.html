@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Auto-LLM-Router 控制台 | Laya on Apple M4 Max</title>
+  <title>Auto-LLM-Router 控制台 | 智能模型路由器 (Laya)</title>
   <link rel="stylesheet" href="/web/style.css?v=20260923_category_sync1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,7 +21,7 @@
         </div>
         <div class="brand-text">
           <h2>AutoRouter</h2>
-          <span class="version-tag">Laya M4-Max</span>
+          <span class="version-tag" id="sidebarVersionTag">Laya Dynamic</span>
         </div>
       </div>
 
@@ -52,7 +52,7 @@
       <div class="sidebar-status">
         <div class="status-indicator">
           <span class="pulsing-dot"></span>
-          <span id="hardwareName">M4 Max (MPS)</span>
+          <span id="hardwareName">硬件加速</span>
         </div>
         <div class="sidebar-meta" id="sidebarMeta">
           <span>内存: -- MB</span>
@@ -87,8 +87,8 @@
         <div class="kpi-row">
           <div class="kpi-card">
             <div class="kpi-title">
-              <span>Laya 决策延迟 (M4 Max)</span>
-              <span class="kpi-badge badge-green">MPS 加速</span>
+              <span id="layaLatencyTitle">Laya 决策延迟</span>
+              <span class="kpi-badge badge-green" id="layaLatencyBadge">硬件加速</span>
             </div>
             <div class="kpi-num" id="kpiLayaLatency">~50 <span class="unit">ms</span></div>
             <div class="kpi-desc">单次非自回归前向极速反射分类</div>
@@ -127,7 +127,7 @@
           <div class="card-header">
             <div>
               <h3>⚡ 单次提示词路由反射测试 (Live Tester)</h3>
-              <p>输入任意中英文提示词，直接调用本地 M4 Max 上的 Laya 引擎进行亚秒级分类与模型分配</p>
+              <p>输入任意中英文提示词，直接调用本地加速硬件上的 Laya 引擎进行亚秒级分类与模型分配</p>
             </div>
           </div>
           <div class="test-box">
@@ -356,9 +356,10 @@
             <div class="form-group">
               <label for="layaDeviceSelect">Laya 运行加速设备 (Hardware Device)</label>
               <select id="layaDeviceSelect" class="form-control">
-                <option value="mps">Apple Metal (MPS) GPU 加速 [推荐 M4 Max]</option>
-                <option value="cpu">CPU 多线程加速</option>
-                <option value="auto">自动选择最佳可用设备</option>
+                <option value="auto">自动选择最佳硬件 [推荐 Auto: CUDA ➔ MPS ➔ CPU]</option>
+                <option value="cuda">NVIDIA CUDA GPU 加速 [Windows / Linux]</option>
+                <option value="mps">Apple Metal (MPS) GPU 加速 [macOS]</option>
+                <option value="cpu">CPU 多线程运算</option>
               </select>
             </div>
 
@@ -394,7 +395,7 @@
                 <input type="radio" name="benchMode" id="modeSim" value="simulation" checked>
                 <div>
                   <strong>⚡ 极速模拟模式 (Fast Simulation)</strong>
-                  <span>0成本！本地 M4 Max 运行 Laya 前向分类，测算全量对比模型理论开销与节省</span>
+                  <span>0成本！本地硬件加速运行 Laya 前向分类，测算全量对比模型理论开销与节省</span>
                 </div>
               </label>
 
@@ -447,7 +448,7 @@
             <div class="kpi-card">
               <div class="kpi-title"><span>Laya 决策平均耗时</span></div>
               <div class="kpi-num" id="resLayaAvgLat">-- ms</div>
-              <div class="kpi-sub">Apple Silicon M4 Max MPS</div>
+              <div class="kpi-sub" id="resLayaDeviceSub">硬件加速</div>
             </div>
             <div class="kpi-card">
               <div class="kpi-title"><span>难度匹配率 (Accuracy)</span></div>
@@ -987,6 +988,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=20260923_category_sync1"></script>
+  <script src="/web/app.js?v=20260923_cuda_v1"></script>
 </body>
 </html>

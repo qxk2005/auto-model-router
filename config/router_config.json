@@ -99,7 +99,7 @@
     },
     "classifier": {
       "backend": "local",
-      "device": "mps",
+      "device": "auto",
       "model": "convaiinnovations/laya",
       "subfolder": "multilingual",
       "threads": 4,

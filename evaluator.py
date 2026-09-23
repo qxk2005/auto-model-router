@@ -112,13 +112,30 @@ class BenchmarkEvaluator:
         }
         policy_display = policy_labels.get(policy_name, policy_name)
 
-        device = laya_cfg.get("device", "mps")
-        if device == "mps":
-            device_display = "Apple Metal (MPS) GPU 加速 [推荐 M4 Max]"
+        device = laya_cfg.get("device", "auto")
+        if device == "cuda":
+            device_display = "NVIDIA CUDA GPU 加速"
+        elif device == "mps":
+            device_display = "Apple Metal (MPS) GPU 加速"
         elif device == "cpu":
-            device_display = "CPU (纯处理器运算)"
+            device_display = "CPU 多线程运算"
+        elif device == "auto":
+            device_display = "自动侦测最佳硬件 (Auto)"
         else:
             device_display = str(device)
+
+        import torch
+        if torch.cuda.is_available():
+            try:
+                hw_name = torch.cuda.get_device_name(0)
+            except Exception:
+                hw_name = "CUDA GPU"
+            hw_tag = f"NVIDIA {hw_name} (CUDA) [ACTIVE]"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            hw_tag = "Apple Silicon (Metal MPS) [ACTIVE]"
+        else:
+            import platform
+            hw_tag = f"CPU Multi-threading ({platform.machine()})"
 
         backend = policy_cfg.get("classifier", {}).get("backend", "local")
         backend_display = "local (本地 Laya 引擎)" if backend == "local" else ("typesafe (云端分类器)" if backend == "typesafe" else "mock (静态测试桩)")
@@ -143,7 +160,7 @@ class BenchmarkEvaluator:
             "checkpoint": laya_cfg.get("checkpoint", "convaiinnovations/laya"),
             "subfolder": laya_cfg.get("subfolder", "multilingual"),
             "request_chars_cap": int(policy_cfg.get("request_chars_cap", 6000)),
-            "hardware_tag": "Apple Silicon M4 Max (Metal MPS) [ACTIVE]",
+            "hardware_tag": hw_tag,
         }
 
         active_models = []

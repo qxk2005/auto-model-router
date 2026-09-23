@@ -44,7 +44,7 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 # Initialize app
 app = ar_server.app
-app.title = "Auto-LLM-Router (Laya on Apple M4 Max)"
+app.title = "Auto-LLM-Router (Laya Multi-Hardware Acceleration)"
 app.version = "1.0.0"
 
 # Add CORS middleware
@@ -110,7 +110,8 @@ async def on_startup():
         reload_router_system()
         clf = getattr(ar_server.router, "classifier", None)
         if isinstance(clf, LocalLayaClassifier):
-            log.info("Pre-warming local Laya classifier on Apple Silicon (MPS) in background...")
+            target_dev = clf._resolve_device() if hasattr(clf, "_resolve_device") else "auto"
+            log.info("Pre-warming local Laya classifier on %s in background...", target_dev)
             loop = asyncio.get_event_loop()
             asyncio.create_task(loop.run_in_executor(None, clf.warmup))
     except Exception as exc:
@@ -123,31 +124,61 @@ async def on_startup():
 # ---------------------------------------------------------------------------
 @app.get("/api/status")
 async def get_system_status():
+    cuda_ok = torch.cuda.is_available()
     mps_ok = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
-    device_name = "Apple Silicon M4 Max (Metal MPS)" if mps_ok else ("CUDA GPU" if torch.cuda.is_available() else "CPU")
+    
+    cuda_device_name = None
+    cuda_vram_mb = 0.0
+    if cuda_ok:
+        try:
+            cuda_device_name = torch.cuda.get_device_name(0)
+            cuda_vram_mb = round(torch.cuda.get_device_properties(0).total_memory / (1024 * 1024), 1)
+        except Exception:
+            cuda_device_name = "NVIDIA CUDA GPU"
+
+    if cuda_ok:
+        d_name = (cuda_device_name or "CUDA GPU").strip()
+        if not d_name.upper().startswith("NVIDIA"):
+            d_name = f"NVIDIA {d_name}"
+        device_name = f"{d_name} (CUDA)"
+        accelerator = "cuda"
+    elif mps_ok:
+        device_name = "Apple Silicon (Metal MPS)"
+        accelerator = "mps"
+    else:
+        import platform
+        device_name = f"CPU 多线程 ({platform.machine()})"
+        accelerator = "cpu"
     
     cfg = get_current_raw_config()
     pol_cfg = cfg.get("policy", {})
     clf_cfg = pol_cfg.get("classifier", {})
     
     clf = getattr(ar_server.router, "classifier", None)
-    actual_dev = getattr(clf, "actual_device", "mps" if mps_ok else "cpu")
+    actual_dev = getattr(clf, "actual_device", accelerator)
     
     # Process memory
     rss_mb = 0.0
     try:
-        import resource
-        rusage = resource.getrusage(resource.RUSAGE_SELF)
-        # On macOS ru_maxrss is in bytes
-        rss_mb = round(rusage.ru_maxrss / (1024 * 1024), 1)
+        import psutil
+        rss_mb = round(psutil.Process().memory_info().rss / (1024 * 1024), 1)
     except Exception:
-        pass
+        try:
+            import resource
+            rusage = resource.getrusage(resource.RUSAGE_SELF)
+            rss_mb = round(rusage.ru_maxrss / (1024 * 1024), 1)
+        except Exception:
+            pass
 
     return {
         "status": "online",
         "uptime_seconds": round(time.time() - START_TIME, 1),
         "device": actual_dev,
         "device_hardware": device_name,
+        "accelerator_type": accelerator,
+        "cuda_available": cuda_ok,
+        "cuda_device_name": cuda_device_name,
+        "cuda_vram_total_mb": cuda_vram_mb,
         "mps_available": mps_ok,
         "classifier_backend": clf_cfg.get("backend", "local"),
         "classifier_model": clf_cfg.get("model", "convaiinnovations/laya"),

@@ -67,11 +67,31 @@ async function refreshStatus() {
     if (!res.ok) return;
     const data = await res.json();
 
-    document.getElementById("hardwareName").textContent = data.device_hardware || "M4 Max";
+    const hwName = data.device_hardware || "本地运算";
+    document.getElementById("hardwareName").textContent = hwName;
     document.getElementById("sidebarMeta").innerHTML = `
       <span>内存: ${data.memory_rss_mb || '--'} MB</span>
       <span>运行: ${Math.round(data.uptime_seconds || 0)}s</span>
     `;
+
+    // Dynamic Title & Badge Adaptation
+    document.title = `Auto-LLM-Router 控制台 | Laya on ${hwName}`;
+    const sideTag = document.getElementById("sidebarVersionTag");
+    if (sideTag) {
+      sideTag.textContent = data.accelerator_type ? `Laya ${data.accelerator_type}` : "Laya Local";
+    }
+    const latTitle = document.getElementById("layaLatencyTitle");
+    if (latTitle) {
+      latTitle.textContent = `Laya 决策延迟 (${hwName})`;
+    }
+    const latBadge = document.getElementById("layaLatencyBadge");
+    if (latBadge) {
+      latBadge.textContent = data.accelerator_type ? `${data.accelerator_type} 加速` : "硬件加速";
+    }
+    const resDevSub = document.getElementById("resLayaDeviceSub");
+    if (resDevSub) {
+      resDevSub.textContent = hwName;
+    }
 
     document.getElementById("kpiActivePolicy").textContent = data.active_policy || "F_expected";
     document.getElementById("kpiProvidersCount").innerHTML = `${data.providers_count} <span class="unit">个服务商</span>`;
@@ -263,7 +283,7 @@ function renderPolicyForm() {
   document.getElementById("remainingTurnsInput").value = pol.remaining_turns || 3.0;
 
   document.getElementById("classifierBackendSelect").value = clf.backend || "local";
-  document.getElementById("layaDeviceSelect").value = clf.device || "mps";
+  document.getElementById("layaDeviceSelect").value = clf.device || "auto";
   document.getElementById("layaModelInput").value = clf.model || "convaiinnovations/laya";
   document.getElementById("layaSubfolderInput").value = clf.subfolder || "multilingual";
   document.getElementById("requestCharsInput").value = clf.request_chars || 6000;
@@ -549,7 +569,7 @@ async function startBenchmark() {
   spinner.style.display = "flex";
   progressText.textContent = currentBenchmarkMode === "real" 
     ? "正在向实际端点 (LM Studio / API) 逐项发送测试请求..." 
-    : "正在通过 Laya 模型在 Apple M4 Max (MPS) 上执行极速模拟测试...";
+    : "正在通过 Laya 模型在本地加速硬件上执行极速模拟测试...";
 
   try {
     const res = await fetch("/api/benchmark/run", {
