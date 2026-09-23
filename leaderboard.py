@@ -430,9 +430,9 @@ class LeaderboardManager:
                         if rating > merged[key]["rating_overall"]:
                             merged[key]["rating_overall"] = round(rating, 1)
                         if tag == "webdev":
-                            merged[key]["rating_coding"] = round(rating, 1)
+                            merged[key]["rating_coding"] = max(merged[key].get("rating_coding", 0.0), round(rating, 1))
                         if tag == "agent":
-                            merged[key]["rating_hard"] = round(rating, 1)
+                            merged[key]["rating_hard"] = max(merged[key].get("rating_hard", 0.0), round(rating, 1))
 
             if not merged:
                 raise RuntimeError("Hugging Face API 无法返回有效评测记录，请检查网络连接")
@@ -441,10 +441,20 @@ class LeaderboardManager:
             sorted_models = sorted(merged.values(), key=lambda x: x["rating_overall"], reverse=True)
             for idx, m in enumerate(sorted_models):
                 m["rank_overall"] = idx + 1
-                ov_norm = normalize_elo(m["rating_overall"])
-                cd_norm = normalize_elo(m.get("rating_coding", m["rating_overall"]))
-                hd_norm = normalize_elo(m.get("rating_hard", m["rating_overall"]))
-                mt_norm = normalize_elo(m.get("rating_math", m["rating_overall"]))
+                ov = m["rating_overall"]
+                # 学科专业分：若在特定子集中实测更高则采纳实测，否则基准紧贴 overall
+                cd_elo = max(m.get("rating_coding", 0.0), ov)
+                hd_elo = max(m.get("rating_hard", 0.0), ov)
+                mt_elo = max(m.get("rating_math", 0.0), ov - 10.0)
+
+                m["rating_coding"] = round(cd_elo, 1)
+                m["rating_hard"] = round(hd_elo, 1)
+                m["rating_math"] = round(mt_elo, 1)
+
+                ov_norm = normalize_elo(ov)
+                cd_norm = normalize_elo(cd_elo)
+                hd_norm = normalize_elo(hd_elo)
+                mt_norm = normalize_elo(mt_elo)
 
                 m["normalized_profile"] = {
                     "coding": cd_norm,

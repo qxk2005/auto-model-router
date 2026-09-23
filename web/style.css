@@ -577,13 +577,43 @@ body {
   border: 1px solid var(--card-border);
   box-sizing: border-box;
   background: #ffffff;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f8fafc;
+}
+
+/* 覆盖 macOS/WebKit 系统默认自动隐藏滚动条机制，保持精致滚动条常驻显式可见与随时拖拽 */
+.table-wrap::-webkit-scrollbar {
+  height: 9px;
+  width: 9px;
+  display: block;
+  background: #f8fafc;
+}
+
+.table-wrap::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 6px;
+  margin: 0 4px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 6px;
+  border: 2px solid #f1f5f9;
+}
+
+.table-wrap::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.table-wrap::-webkit-scrollbar-thumb:active {
+  background: #64748b;
 }
 
 .data-table {
   width: 100%;
-  min-width: 780px;
+  min-width: 1080px; /* 保证双币种价格、探测药丸、操作按钮等 10 列舒展排布，彻底杜绝内容挤压折行 */
   border-collapse: collapse;
-  font-size: 13.5px;
+  font-size: 13px;
 }
 
 .data-table th {
@@ -600,6 +630,7 @@ body {
   padding: 12px 14px;
   border-bottom: 1px solid #f1f5f9;
   color: var(--text-main);
+  white-space: nowrap;
 }
 
 .data-table tr:hover td {
