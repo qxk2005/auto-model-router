@@ -36,6 +36,7 @@ class ReportGenerator:
         results_json = json.dumps([r.__dict__ for r in summary.results], ensure_ascii=False)
         model_dist_json = json.dumps(summary.model_distribution, ensure_ascii=False)
         cat_stats_json = json.dumps(summary.category_breakdown, ensure_ascii=False)
+        trace_topology_json = json.dumps(getattr(summary, "trace_topology_stats", {}), ensure_ascii=False)
 
         # Precompute chart data
         exp_cost = summary.cost_expensive_total
@@ -595,6 +596,202 @@ class ReportGenerator:
       color: var(--success);
       font-weight: 600;
     }}
+
+    /* Route Trace Topology Panel */
+    .trace-topology-panel {{
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 22px;
+      box-shadow: var(--card-shadow);
+      margin-bottom: 28px;
+    }}
+    .topology-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }}
+    .topology-container {{
+      display: grid;
+      grid-template-columns: 260px 1fr 280px;
+      gap: 20px;
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 20px;
+      position: relative;
+    }}
+    @media (max-width: 960px) {{
+      .topology-container {{ grid-template-columns: 1fr; }}
+    }}
+    .topo-col {{
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 2;
+    }}
+    .topo-col-title {{
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }}
+    .topo-node {{
+      background: #ffffff;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }}
+    .topo-node:hover {{
+      transform: translateY(-2px);
+      border-color: var(--primary);
+      box-shadow: 0 4px 10px rgba(2, 132, 199, 0.12);
+    }}
+    .topo-node.active-filter {{
+      border-color: var(--primary);
+      background: #f0f9ff;
+    }}
+    .topo-node-title {{
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }}
+    .topo-node-meta {{
+      font-size: 11.5px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }}
+    .topo-badge {{
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }}
+
+    /* Waterfall Trace Drawer & Timeline */
+    .trace-btn {{
+      background: #e0f2fe;
+      color: #0369a1;
+      border: 1px solid #bae6fd;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      user-select: none;
+    }}
+    .trace-btn:hover {{
+      background: #bae6fd;
+    }}
+    .trace-drawer-tr {{
+      background: #f8fafc !important;
+    }}
+    .trace-drawer-content {{
+      padding: 16px 20px;
+      border-top: 1px dashed #cbd5e1;
+      border-bottom: 2px solid #cbd5e1;
+    }}
+    .trace-waterfall-box {{
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    }}
+    .waterfall-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-main);
+    }}
+    .waterfall-track {{
+      height: 28px;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      margin-bottom: 8px;
+    }}
+    .waterfall-block {{
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #ffffff;
+      position: absolute;
+      top: 0;
+      border-radius: 4px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      padding: 0 6px;
+      transition: width 0.3s ease;
+    }}
+    .waterfall-classifier {{ background: #0284c7; }}
+    .waterfall-primary {{ background: #d97706; }}
+    .waterfall-verifier {{ background: #7c3aed; }}
+    .waterfall-escalate {{ background: #059669; }}
+    .waterfall-error {{ background: #ef4444; }}
+
+    .trace-steps-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }}
+    .trace-step-card {{
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }}
+    .trace-step-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+    }}
+    .trace-step-dur {{
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: #0284c7;
+    }}
     
     /* Footer */
     .footer {{
@@ -645,6 +842,69 @@ class ReportGenerator:
         <div class="kpi-label"><span>🎯 难度与模型匹配率</span><span>Accuracy</span></div>
         <div class="kpi-value" style="color: #38bdf8;">{summary.alignment_rate}%</div>
         <div class="kpi-sub">总测试用例数: {summary.total_cases} 条 (汇率: 1 USD = {usd_rate} CNY)</div>
+      </div>
+    </section>
+
+    <!-- Route Trace Flow Topology Panel (Macro View) -->
+    <section class="trace-topology-panel" id="traceTopologySection">
+      <div class="topology-header">
+        <div class="panel-title">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+          <span>全链路路由追踪拓扑流向图 (Route Trace Topology Flow)</span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <span style="font-size: 12px; color: var(--text-muted);">点击节点可过滤下方表格</span>
+          <button type="button" onclick="resetTopoFilter()" style="padding: 2px 8px; font-size: 11.5px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer;">重置筛选</button>
+        </div>
+      </div>
+
+      <div class="topology-container" id="topologyContainer">
+        <!-- Col 1: Laya Decision Hub -->
+        <div class="topo-col">
+          <div class="topo-col-title">🧠 阶段 1: 硬件加速决策中枢</div>
+          <div class="topo-node active-filter" id="nodeLaya" onclick="filterByTraceStage('all')">
+            <div class="topo-node-title">
+              <span>Laya 意图与特征分类</span>
+              <span class="topo-badge" style="background:#e0f2fe; color:#0284c7;">{summary.avg_classifier_latency_ms} ms</span>
+            </div>
+            <div class="topo-node-meta">
+              <span>全量请求统一极速仲裁</span>
+              <strong>{summary.total_cases} 次</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Col 2: Primary Dispatched Models -->
+        <div class="topo-col" id="topoPrimaryCol">
+          <div class="topo-col-title">🚀 阶段 2: 首次模型调度池</div>
+          <!-- Populated by JS -->
+        </div>
+
+        <!-- Col 3: Final Outcomes & Escalation -->
+        <div class="topo-col">
+          <div class="topo-col-title">🎯 阶段 3: 质量裁决与终局流向</div>
+          <div class="topo-node" id="nodeDirectSuccess" onclick="filterByTraceStage('direct')">
+            <div class="topo-node-title">
+              <span style="color:#059669;">✓ 一跳直接解决 (Direct)</span>
+              <span class="topo-badge" style="background:#ecfdf5; color:#059669;" id="badgeDirectCount">-- 次</span>
+            </div>
+            <div class="topo-node-meta">
+              <span>首选模型生成达标验收通过</span>
+              <strong id="badgeDirectPct">--%</strong>
+            </div>
+          </div>
+
+          <div class="topo-node" id="nodeEscalated" onclick="filterByTraceStage('escalated')">
+            <div class="topo-node-title">
+              <span style="color:#7c3aed;">🔄 重新转发升级/容灾 (Multi-hop)</span>
+              <span class="topo-badge" style="background:#f5f3ff; color:#7c3aed;" id="badgeEscalateCount">-- 次</span>
+            </div>
+            <div class="topo-node-meta">
+              <span>质量不满足升级或故障容灾</span>
+              <strong id="badgeEscalatePct">--%</strong>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -752,6 +1012,7 @@ class ReportGenerator:
               <th>路由成本 ({cur_sym})</th>
               <th>节省幅度</th>
               <th>决策状态</th>
+              <th>全链路追踪 (Trace)</th>
             </tr>
           </thead>
           <tbody id="tableBody">
@@ -763,7 +1024,7 @@ class ReportGenerator:
 
     <!-- Footer -->
     <footer class="footer">
-      <p>Auto-LLM-Router-Laya • 跑在 Apple Silicon M4 Max 上的低延迟智能模型分流系统</p>
+      <p>Auto-LLM-Router-Laya • 跑在本地加速硬件上的低延迟智能模型分流系统</p>
     </footer>
   </div>
 
@@ -771,6 +1032,51 @@ class ReportGenerator:
     const results = {results_json};
     const modelDist = {model_dist_json};
     const catStats = {cat_stats_json};
+    const traceTopology = {trace_topology_json};
+
+    let activeTraceFilter = "all";
+
+    // 1. Initialize Route Trace Topology Panel (Macro View)
+    function initTopologyPanel() {{
+      const totalCases = results.length;
+      const directCases = results.filter(r => !r.escalated && !r.error).length;
+      const escalatedCases = results.filter(r => r.escalated).length;
+
+      const directPct = totalCases > 0 ? ((directCases / totalCases) * 100).toFixed(1) : 0;
+      const escPct = totalCases > 0 ? ((escalatedCases / totalCases) * 100).toFixed(1) : 0;
+
+      const badgeDirectCount = document.getElementById("badgeDirectCount");
+      const badgeDirectPct = document.getElementById("badgeDirectPct");
+      const badgeEscCount = document.getElementById("badgeEscalateCount");
+      const badgeEscPct = document.getElementById("badgeEscalatePct");
+
+      if (badgeDirectCount) badgeDirectCount.textContent = `${{directCases}} 次`;
+      if (badgeDirectPct) badgeDirectPct.textContent = `${{directPct}}%`;
+      if (badgeEscCount) badgeEscCount.textContent = `${{escalatedCases}} 次`;
+      if (badgeEscPct) badgeEscPct.textContent = `${{escPct}}%`;
+
+      const primaryCol = document.getElementById("topoPrimaryCol");
+      if (primaryCol) {{
+        for (const [model, count] of Object.entries(modelDist)) {{
+          const pct = totalCases > 0 ? ((count / totalCases) * 100).toFixed(1) : 0;
+          const node = document.createElement("div");
+          node.className = "topo-node";
+          node.id = `nodeModel_${{model.replace(/[^a-zA-Z0-9]/g, '_')}}`;
+          node.onclick = () => filterByTraceStage(`model:${{model}}`);
+          node.innerHTML = `
+            <div class="topo-node-title">
+              <span style="font-family: var(--font-mono); color: var(--primary);">${{model}}</span>
+              <span class="topo-badge" style="background:#e0f2fe; color:#0369a1;">${{count}} 次</span>
+            </div>
+            <div class="topo-node-meta">
+              <span>初选用例占比</span>
+              <strong>${{pct}}%</strong>
+            </div>
+          `;
+          primaryCol.appendChild(node);
+        }}
+      }}
+    }}
 
     // Render Model Distribution List
     const distContainer = document.getElementById("distList");
@@ -808,7 +1114,23 @@ class ReportGenerator:
       modelFilter.appendChild(opt);
     }});
 
-    // Render Table
+    // Toggle Waterfall Trace Drawer for a single case
+    function toggleTraceRow(caseId, btnEl) {{
+      const drawer = document.getElementById(`trace_drawer_${{caseId}}`);
+      if (!drawer) return;
+      const isVisible = drawer.style.display !== "none";
+      if (isVisible) {{
+        drawer.style.display = "none";
+        btnEl.innerHTML = "<span>🔍 展开链路 ▾</span>";
+        btnEl.style.background = "#e0f2fe";
+      }} else {{
+        drawer.style.display = "table-row";
+        btnEl.innerHTML = "<span>收起链路 ▴</span>";
+        btnEl.style.background = "#bae6fd";
+      }}
+    }}
+
+    // Render Table with Waterfall Drawer
     function renderTable(data) {{
       const tbody = document.getElementById("tableBody");
       tbody.innerHTML = "";
@@ -820,6 +1142,11 @@ class ReportGenerator:
         const statusBadge = r.is_aligned 
           ? `<span style="color: var(--success); font-weight: 600;">✓ 匹配</span>` 
           : `<span style="color: var(--warning); font-weight: 600;">⚠ 偏置</span>`;
+
+        const isEscalated = r.escalated || false;
+        const hopBadge = isEscalated
+          ? `<span class="badge" style="background:#f5f3ff; color:#7c3aed; font-size:11px; padding:2px 8px;">🔄 2跳 (升级/容灾)</span>`
+          : `<span class="badge" style="background:#ecfdf5; color:#059669; font-size:11px; padding:2px 8px;">✓ 1跳直达</span>`;
 
         tr.innerHTML = `
           <td style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);">${{r.case_id}}</td>
@@ -834,9 +1161,135 @@ class ReportGenerator:
           <td style="font-family: var(--font-mono); color: var(--text-main);">${{r.cost_router > 0 ? '{cur_sym}'+r.cost_router.toFixed(5) : '{cur_sym}0.00 (免费)'}}</td>
           <td class="saving-cell">${{r.savings_pct > 0 ? '+'+r.savings_pct+'%' : '0%'}}</td>
           <td>${{statusBadge}}</td>
+          <td style="white-space: nowrap;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              ${{hopBadge}}
+              <button type="button" class="trace-btn" onclick="toggleTraceRow('${{r.case_id}}', this)">
+                <span>🔍 展开链路 ▾</span>
+              </button>
+            </div>
+          </td>
         `;
         tbody.appendChild(tr);
+
+        // Build Trace Drawer Row (Micro Waterfall View)
+        const trDrawer = document.createElement("tr");
+        trDrawer.className = "trace-drawer-tr";
+        trDrawer.id = `trace_drawer_${{r.case_id}}`;
+        trDrawer.style.display = "none";
+
+        const chain = r.trace_chain || [];
+        const totDur = chain.length > 0 ? chain.reduce((acc, s) => acc + (s.duration_ms || 0), 0) : 1;
+
+        // Build Waterfall Blocks
+        let blocksHtml = "";
+        let runningStart = 0;
+        chain.forEach((st) => {{
+          const stStart = st.start_ms !== undefined ? st.start_ms : runningStart;
+          const stDur = st.duration_ms || 1;
+          const leftPct = Math.min(96, Math.max(0, (stStart / Math.max(totDur, 0.1)) * 100));
+          const widthPct = Math.min(100 - leftPct, Math.max(4, (stDur / Math.max(totDur, 0.1)) * 100));
+
+          let cls = "waterfall-primary";
+          if (st.stage_type === "classifier") cls = "waterfall-classifier";
+          else if (st.stage_type === "verifier") cls = "waterfall-verifier";
+          else if (st.stage_type === "escalate_model") cls = "waterfall-escalate";
+          else if (st.status === "error" || st.status === "timeout") cls = "waterfall-error";
+
+          blocksHtml += `
+            <div class="waterfall-block ${{cls}}" style="left: ${{leftPct.toFixed(1)}}%; width: ${{widthPct.toFixed(1)}}%;" title="${{st.name}}: +${{stDur}}ms (${{st.status}})">
+              ${{st.name}} (+${{stDur}}ms)
+            </div>
+          `;
+          runningStart += stDur;
+        }});
+
+        // Build Step Cards
+        let cardsHtml = "";
+        chain.forEach((st, sIdx) => {{
+          const badgeClass = (st.status === "success" || st.status === "adequate") 
+            ? "background:#ecfdf5; color:#059669; border:1px solid #a7f3d0;" 
+            : (st.status === "escalate_recommended" || st.status === "unmet"
+              ? "background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe;"
+              : "background:#fef2f2; color:#b91c1c; border:1px solid #fecaca;");
+
+          const statusText = st.status === "adequate" ? "验收满意" 
+            : (st.status === "escalate_recommended" ? "判定升级" 
+            : (st.status === "success" ? "调用成功" 
+            : (st.status === "timeout" ? "超时重试" : (st.status === "error" ? "异常转接" : st.status))));
+
+          const tokStr = st.tokens ? `Tokens: ${{(st.tokens.prompt || 0) + (st.tokens.completion || 0)}} (In: ${{st.tokens.prompt || 0}}, Out: ${{st.tokens.completion || 0}})` : '';
+
+          cardsHtml += `
+            <div class="trace-step-card">
+              <div class="trace-step-header">
+                <span>#${{sIdx + 1}} ${{st.name}}</span>
+                <span class="topo-badge" style="${{badgeClass}}">${{statusText}}</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+                <span class="trace-step-dur">+${{st.duration_ms}} ms</span>
+                <span style="font-size:11px; color:var(--text-muted);">${{st.cost_usd > 0 ? '${{cur_sym}}' + st.cost_usd.toFixed(6) : (st.stage_type === 'classifier' ? '0成本前向' : '免费/零计费')}}</span>
+              </div>
+              <div style="font-size:11.5px; color:var(--text-muted); margin-top:4px;">${{st.detail || ''}}</div>
+              ${{tokStr ? `<div style="font-size:11px; color:var(--text-dim);">${{tokStr}}</div>` : ''}}
+              ${{st.snippet ? `<div style="font-size:11px; background:#ffffff; border:1px solid #e2e8f0; border-radius:4px; padding:4px 8px; margin-top:4px; color:var(--text-main); max-height:48px; overflow:hidden; text-overflow:ellipsis;">${{st.snippet}}</div>` : ''}}
+            </div>
+          `;
+        }});
+
+        trDrawer.innerHTML = `
+          <td colspan="10" class="trace-drawer-content">
+            <div class="trace-waterfall-box">
+              <div class="waterfall-header">
+                <div>
+                  <span style="font-weight:700;">⏱️ 路由时序甘特瀑布流 (Timeline Waterfall)</span>
+                  <span style="font-size:11.5px; color:var(--text-muted); margin-left:8px;">[用例 ID: ${{r.case_id}}] 全程耗时: <strong>${{Math.round(totDur)}} ms</strong></span>
+                </div>
+                <div style="display:flex; gap:12px; font-size:11px;">
+                  <span><span style="display:inline-block;width:8px;height:8px;background:#0284c7;border-radius:2px;margin-right:4px;"></span>Laya决策</span>
+                  <span><span style="display:inline-block;width:8px;height:8px;background:#d97706;border-radius:2px;margin-right:4px;"></span>首选调用</span>
+                  <span><span style="display:inline-block;width:8px;height:8px;background:#7c3aed;border-radius:2px;margin-right:4px;"></span>质量验收</span>
+                  <span><span style="display:inline-block;width:8px;height:8px;background:#059669;border-radius:2px;margin-right:4px;"></span>升级/容灾</span>
+                </div>
+              </div>
+              <div class="waterfall-track">
+                ${{blocksHtml}}
+              </div>
+              <div class="trace-steps-grid" style="margin-top:14px;">
+                ${{cardsHtml}}
+              </div>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(trDrawer);
       }});
+    }}
+
+    // Filter by Topo Stage Node Click
+    function filterByTraceStage(stage) {{
+      activeTraceFilter = stage;
+      document.querySelectorAll(".topo-node").forEach(n => n.classList.remove("active-filter"));
+
+      if (stage === "all") {{
+        const node = document.getElementById("nodeLaya");
+        if (node) node.classList.add("active-filter");
+      }} else if (stage === "direct") {{
+        const node = document.getElementById("nodeDirectSuccess");
+        if (node) node.classList.add("active-filter");
+      }} else if (stage === "escalated") {{
+        const node = document.getElementById("nodeEscalated");
+        if (node) node.classList.add("active-filter");
+      }} else if (stage.startsWith("model:")) {{
+        const m = stage.split(":")[1];
+        const node = document.getElementById(`nodeModel_${{m.replace(/[^a-zA-Z0-9]/g, '_')}}`);
+        if (node) node.classList.add("active-filter");
+      }}
+
+      filterTable();
+    }}
+
+    function resetTopoFilter() {{
+      filterByTraceStage("all");
     }}
 
     function filterTable() {{
@@ -850,13 +1303,25 @@ class ReportGenerator:
         const matchesCat = cat === "all" || r.category === cat;
         const matchesDiff = diff === "all" || r.difficulty_tag.toLowerCase().includes(diff);
         const matchesModel = model === "all" || r.chosen_model === model;
-        return matchesSearch && matchesCat && matchesDiff && matchesModel;
+
+        let matchesStage = true;
+        if (activeTraceFilter === "direct") {{
+          matchesStage = !r.escalated && !r.error;
+        }} else if (activeTraceFilter === "escalated") {{
+          matchesStage = r.escalated === true;
+        }} else if (activeTraceFilter.startsWith("model:")) {{
+          const targetM = activeTraceFilter.split(":")[1];
+          matchesStage = r.chosen_model === targetM || (r.trace_chain && r.trace_chain.some(s => s.name === targetM));
+        }}
+
+        return matchesSearch && matchesCat && matchesDiff && matchesModel && matchesStage;
       }});
 
       renderTable(filtered);
     }}
 
     // Initial render
+    initTopologyPanel();
     renderTable(results);
   </script>
 </body>

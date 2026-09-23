@@ -58,6 +58,10 @@ class CaseResult:
     real_latency_s: float = 0.0
     real_response: str = ""
     error: str = ""
+    # Execution Trace Chain fields
+    trace_chain: list[dict] = field(default_factory=list)
+    hop_count: int = 1
+    escalated: bool = False
 
 
 @dataclass
@@ -84,6 +88,7 @@ class BenchmarkSummary:
     currency_symbol: str = "¥"
     usd_cny_rate: float = 7.20
     config_snapshot: dict[str, Any] = field(default_factory=dict)
+    trace_topology_stats: dict[str, Any] = field(default_factory=dict)
 
 
 class BenchmarkEvaluator:
@@ -263,6 +268,105 @@ class BenchmarkEvaluator:
             elif tier_chosen == "expensive":
                 cat_info["exp_count"] += 1
 
+            # 构建仿真模拟的完整执行链路 (Trace Chain)
+            dev_str = getattr(self.router.classifier, "actual_device", "mps").upper() if hasattr(self.router, "classifier") else "MPS"
+            trace_chain: list[dict] = [{
+                "stage_index": 1,
+                "stage_type": "classifier",
+                "name": f"Laya 决策引擎 ({dev_str})",
+                "provider": "local_engine",
+                "status": "success",
+                "start_ms": 0.0,
+                "duration_ms": round(lat_ms, 2),
+                "tokens": {"prompt": prompt_tokens, "completion": 0, "total": prompt_tokens},
+                "cost_usd": 0.0,
+                "detail": f"类别: {clf.category if clf else cat_expected} | 难度: {clf.difficulty if clf else 0.5:.2f} | 风险代价: {clf.stakes if clf else 0.2:.2f}",
+                "snippet": f"策略仲裁选定首选目标: [{chosen_name}] ({reason})",
+            }]
+
+            is_chosen_local = getattr(chosen_model, "free", False) or "local" in getattr(chosen_model, "provider", "").lower()
+            sim_primary_ms = 140.0 if is_chosen_local else 420.0
+
+            # 模拟推演：若为高难度/高风险任务但初选分配了较弱模型，按概率推演触发质量验收不合格并升级
+            p_failure_sim = max(0.0, min(0.85, ((clf.difficulty if clf else 0.5) - 0.45) * 1.5)) if (clf and tier_chosen == "cheap" and diff_tag == "hard") else 0.0
+            will_escalate = (p_failure_sim > 0.40)
+
+            if not will_escalate:
+                trace_chain.append({
+                    "stage_index": 2,
+                    "stage_type": "primary_model",
+                    "name": chosen_name,
+                    "provider": getattr(chosen_model, "provider", "none"),
+                    "status": "success",
+                    "start_ms": round(lat_ms, 2),
+                    "duration_ms": round(sim_primary_ms, 2),
+                    "tokens": {"prompt": prompt_tokens, "completion": output_tokens, "total": prompt_tokens + output_tokens},
+                    "cost_usd": round(cost_router, 6),
+                    "detail": "首选模型推演完成 (HTTP 200 模拟响应)",
+                    "snippet": f"首选模型生成完毕，Token 消耗: {prompt_tokens + output_tokens}",
+                })
+                trace_chain.append({
+                    "stage_index": 3,
+                    "stage_type": "verifier",
+                    "name": "Laya 质量验收裁决 (Adequacy Check)",
+                    "provider": "local_engine",
+                    "status": "adequate",
+                    "start_ms": round(lat_ms + sim_primary_ms, 2),
+                    "duration_ms": 12.0,
+                    "tokens": {"prompt": 0, "completion": 0, "total": 0},
+                    "cost_usd": 0.0,
+                    "detail": "质量判定满意度高 (p_adequate ≈ 0.95)，通过验收无需二次升级",
+                    "snippet": "裁决通过，直接采纳首选模型输出作为最终交付",
+                })
+                hop_count = 1
+                is_case_escalated = False
+            else:
+                trace_chain.append({
+                    "stage_index": 2,
+                    "stage_type": "primary_model",
+                    "name": chosen_name,
+                    "provider": getattr(chosen_model, "provider", "none"),
+                    "status": "unmet",
+                    "start_ms": round(lat_ms, 2),
+                    "duration_ms": round(sim_primary_ms, 2),
+                    "tokens": {"prompt": prompt_tokens, "completion": output_tokens, "total": prompt_tokens + output_tokens},
+                    "cost_usd": round(cost_router, 6),
+                    "detail": "初选轻量模型生成完成，但推演质量存疑",
+                    "snippet": "生成结果较为简略，未充分覆盖复杂难点",
+                })
+                ver_ms = 16.0
+                trace_chain.append({
+                    "stage_index": 3,
+                    "stage_type": "verifier",
+                    "name": "Laya 质量验收裁决 (Adequacy Check)",
+                    "provider": "local_engine",
+                    "status": "escalate_recommended",
+                    "start_ms": round(lat_ms + sim_primary_ms, 2),
+                    "duration_ms": ver_ms,
+                    "tokens": {"prompt": 0, "completion": 0, "total": 0},
+                    "cost_usd": 0.0,
+                    "detail": f"质量判定预估满意度不足 (p_adequate ≈ {1.0 - p_failure_sim:.2f} < 0.65)，建议重新转发至高阶模型",
+                    "snippet": "触发 Scott-Shapiro 升级规约，转向高阶基准模型",
+                })
+                esc_model = expensive_model or chosen_model
+                esc_cost = self._calc_model_cost(esc_model, prompt_tokens, output_tokens)
+                esc_dur_ms = 460.0
+                trace_chain.append({
+                    "stage_index": 4,
+                    "stage_type": "escalate_model",
+                    "name": getattr(esc_model, "name", "escalated-model"),
+                    "provider": getattr(esc_model, "provider", "none"),
+                    "status": "success",
+                    "start_ms": round(lat_ms + sim_primary_ms + ver_ms, 2),
+                    "duration_ms": esc_dur_ms,
+                    "tokens": {"prompt": prompt_tokens, "completion": output_tokens, "total": prompt_tokens + output_tokens},
+                    "cost_usd": round(esc_cost, 6),
+                    "detail": "二次升级高阶模型执行成功，深度解答难例",
+                    "snippet": f"高阶模型重新推演生成完毕，单次消耗费用: ${esc_cost:.6f}",
+                })
+                hop_count = 2
+                is_case_escalated = True
+
             results.append(
                 CaseResult(
                     case_id=cid,
@@ -286,6 +390,9 @@ class BenchmarkEvaluator:
                     savings_usd=round(savings_usd, 6),
                     savings_pct=savings_pct,
                     is_aligned=is_aligned,
+                    trace_chain=trace_chain,
+                    hop_count=hop_count,
+                    escalated=is_case_escalated,
                 )
             )
             if on_progress:
@@ -298,6 +405,21 @@ class BenchmarkEvaluator:
         tot_savings = max(0.0, tot_exp - tot_router)
         tot_savings_pct = round((tot_savings / tot_exp * 100.0), 2) if tot_exp > 0 else 0.0
         aligned_cnt = sum(1 for r in results if r.is_aligned)
+
+        # 构造宏观拓扑流向统计
+        trace_topology_stats = {
+            "total_cases": len(results),
+            "direct_success_count": sum(1 for r in results if not r.escalated and not r.error),
+            "escalated_count": sum(1 for r in results if r.escalated),
+            "error_count": sum(1 for r in results if r.error),
+            "hop_distribution": {
+                "1_hop": sum(1 for r in results if r.hop_count == 1),
+                "2_hops": sum(1 for r in results if r.hop_count >= 2),
+            },
+            "avg_classifier_ms": round(total_classifier_latency / max(1, len(results)), 2),
+            "avg_primary_ms": round(sum(r.trace_chain[1]["duration_ms"] for r in results if len(r.trace_chain) > 1) / max(1, len(results)), 2),
+            "avg_escalate_ms": round(sum(r.trace_chain[3]["duration_ms"] for r in results if len(r.trace_chain) > 3) / max(1, sum(1 for r in results if r.escalated)), 2) if any(r.escalated for r in results) else 0.0,
+        }
 
         return BenchmarkSummary(
             timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -318,6 +440,7 @@ class BenchmarkEvaluator:
             currency_symbol=self.currency_symbol,
             usd_cny_rate=self.usd_cny_rate,
             config_snapshot=self._build_config_snapshot(),
+            trace_topology_stats=trace_topology_stats,
             results=results,
         )
 
@@ -366,7 +489,23 @@ class BenchmarkEvaluator:
 
                 total_classifier_latency += lat_ms
 
-                # 2. 向选中模型对应的上游提供商发起真实 HTTP 调用
+                trace_chain: list[dict] = []
+                dev_str = getattr(self.router.classifier, "actual_device", "mps").upper() if hasattr(self.router, "classifier") else "MPS"
+                trace_chain.append({
+                    "stage_index": 1,
+                    "stage_type": "classifier",
+                    "name": f"Laya 决策引擎 ({dev_str})",
+                    "provider": "local_engine",
+                    "status": "success",
+                    "start_ms": 0.0,
+                    "duration_ms": round(lat_ms, 2),
+                    "tokens": {"prompt": prompt_tokens, "completion": 0, "total": prompt_tokens},
+                    "cost_usd": 0.0,
+                    "detail": f"类别: {clf.category if clf else cat_expected} | 难度: {clf.difficulty if clf else 0.5:.2f} | 风险代价: {clf.stakes if clf else 0.2:.2f}",
+                    "snippet": f"策略仲裁首选: [{chosen_name}] ({reason})",
+                })
+
+                # 2. 向选中模型发起首次真实调用
                 provider_id = getattr(chosen_model, "provider", None) if chosen_model else None
                 provider = None
                 if provider_id and hasattr(self.router, "config") and hasattr(self.router.config, "providers"):
@@ -377,49 +516,177 @@ class BenchmarkEvaluator:
                 real_o_tokens = output_tokens
                 real_dur = 0.0
                 err_msg = ""
+                hop_count = 1
+                is_case_escalated = False
+                cur_start_ms = lat_ms
+
+                async def call_model_api(target_m, target_p, max_tok):
+                    if not target_p or not target_p.base_url:
+                        return False, 0.0, "", 0, 0, f"未配置提供商或端点 (provider: {getattr(target_m, 'provider', 'none')})"
+                    base_u = (getattr(target_p, "resolved_base_url", None) or target_p.base_url or "").strip().rstrip("/")
+                    endpoint = base_u if base_u.endswith("/chat/completions") else f"{base_u}/chat/completions"
+                    hdrs = {"Content-Type": "application/json"}
+                    if target_p.api_key:
+                        hdrs["Authorization"] = f"Bearer {target_p.api_key}"
+                    if hasattr(target_p, "extra_headers") and target_p.extra_headers:
+                        hdrs.update(target_p.extra_headers)
+                    up_id = getattr(target_m, "upstream_id", None) or getattr(target_m, "name", "default")
+                    pld = {
+                        "model": up_id,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": min(max_tok, 150),
+                        "temperature": 0.7,
+                    }
+                    to_s = float(
+                        getattr(target_m, "timeout_s", None)
+                        or (self.config_raw.get("policy", {}) or {}).get("request_timeout_seconds")
+                        or 60.0
+                    )
+                    t0 = time.perf_counter()
+                    try:
+                        resp = await client.post(endpoint, json=pld, headers=hdrs, timeout=to_s)
+                        dur = time.perf_counter() - t0
+                        if resp.status_code == 200:
+                            d = resp.json()
+                            chs = d.get("choices", [])
+                            txt = chs[0].get("message", {}).get("content", "") if chs else ""
+                            usg = d.get("usage", {})
+                            pt = usg.get("prompt_tokens", prompt_tokens)
+                            ct = usg.get("completion_tokens", len(txt) // 2 or max_tok)
+                            return True, dur, txt, pt, ct, ""
+                        else:
+                            return False, dur, "", 0, 0, f"HTTP {resp.status_code}: {resp.text[:160]}"
+                    except httpx.TimeoutException:
+                        dur = time.perf_counter() - t0
+                        return False, dur, "", 0, 0, f"调用超时 ({to_s:.0f}s)"
+                    except Exception as e:
+                        dur = time.perf_counter() - t0
+                        return False, dur, "", 0, 0, f"网络异常: {e}"
 
                 async with sem:
-                    if provider and provider.base_url:
-                        base_url = (getattr(provider, "resolved_base_url", None) or provider.base_url or "").strip().rstrip("/")
-                        url = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
-                        t_req_start = time.perf_counter()
-                        try:
-                            headers = {"Content-Type": "application/json"}
-                            key = provider.api_key
-                            if key:
-                                headers["Authorization"] = f"Bearer {key}"
-                            if hasattr(provider, "extra_headers") and provider.extra_headers:
-                                headers.update(provider.extra_headers)
+                    # 尝试首选模型
+                    succ, dur_s, ans_txt, pt, ct, err = await call_model_api(chosen_model, provider, output_tokens)
+                    real_dur += dur_s
+                    stage_dur_ms = round(dur_s * 1000.0, 2)
 
-                            upstream_id = getattr(chosen_model, "upstream_id", None) or getattr(chosen_model, "name", "default")
-                            payload = {
-                                "model": upstream_id,
-                                "messages": [{"role": "user", "content": prompt}],
-                                "max_tokens": min(output_tokens, 150),
-                                "temperature": 0.7,
-                            }
-                            req_timeout = float(
-                                getattr(chosen_model, "timeout_s", None)
-                                or (self.config_raw.get("policy", {}) or {}).get("request_timeout_seconds")
-                                or 60.0
-                            )
-                            res = await client.post(url, json=payload, headers=headers, timeout=req_timeout)
-                            real_dur = time.perf_counter() - t_req_start
-                            if res.status_code == 200:
-                                data = res.json()
-                                choices = data.get("choices", [])
-                                if choices:
-                                    real_response_text = choices[0].get("message", {}).get("content", "")
-                                usage = data.get("usage", {})
-                                real_p_tokens = usage.get("prompt_tokens", prompt_tokens)
-                                real_o_tokens = usage.get("completion_tokens", len(real_response_text) // 2 or output_tokens)
-                            else:
-                                err_msg = f"HTTP {res.status_code}: {res.text[:200]}"
-                        except Exception as exc:
-                            real_dur = time.perf_counter() - t_req_start
-                            err_msg = f"Request error: {exc}"
+                    if succ:
+                        real_response_text = ans_txt
+                        real_p_tokens = pt
+                        real_o_tokens = ct
+                        trace_chain.append({
+                            "stage_index": 2,
+                            "stage_type": "primary_model",
+                            "name": chosen_name,
+                            "provider": getattr(chosen_model, "provider", "none"),
+                            "status": "success",
+                            "start_ms": round(cur_start_ms, 2),
+                            "duration_ms": stage_dur_ms,
+                            "tokens": {"prompt": pt, "completion": ct, "total": pt + ct},
+                            "cost_usd": round(self._calc_model_cost(chosen_model, pt, ct), 6),
+                            "detail": f"首选模型响应成功 (200 OK)",
+                            "snippet": (ans_txt[:140] + "...") if len(ans_txt) > 140 else ans_txt,
+                        })
+                        cur_start_ms += stage_dur_ms
+
+                        # 进行 Laya 质量验收判定
+                        if hasattr(self.router, "check") and ans_txt:
+                            t_chk_0 = time.perf_counter()
+                            try:
+                                verdict = await loop.run_in_executor(None, lambda: self.router.check(route_res, prompt, ans_txt))
+                                chk_dur_ms = round((time.perf_counter() - t_chk_0) * 1000.0, 2)
+                                should_escalate = getattr(verdict, "escalate", False)
+
+                                trace_chain.append({
+                                    "stage_index": 3,
+                                    "stage_type": "verifier",
+                                    "name": "Laya 质量验收裁决 (Adequacy Check)",
+                                    "provider": "local_engine",
+                                    "status": "escalate_recommended" if should_escalate else "adequate",
+                                    "start_ms": round(cur_start_ms, 2),
+                                    "duration_ms": chk_dur_ms,
+                                    "tokens": {"prompt": 0, "completion": 0, "total": 0},
+                                    "cost_usd": 0.0,
+                                    "detail": f"满意度评分: {getattr(verdict, 'p_adequate', 'N/A')}, 是否升级: {should_escalate}",
+                                    "snippet": getattr(verdict, "reason", "质量验收裁决完成"),
+                                })
+                                cur_start_ms += chk_dur_ms
+
+                                # 若建议升级，且有更强的高阶模型，触发升级重新转发
+                                if should_escalate and expensive_model and expensive_model.name != chosen_name:
+                                    esc_prov = self.router.config.providers.get(expensive_model.provider) if hasattr(self.router.config, "providers") else None
+                                    e_succ, e_dur, e_txt, e_pt, e_ct, e_err = await call_model_api(expensive_model, esc_prov, output_tokens)
+                                    real_dur += e_dur
+                                    esc_dur_ms = round(e_dur * 1000.0, 2)
+                                    if e_succ:
+                                        real_response_text = e_txt
+                                        real_p_tokens = e_pt
+                                        real_o_tokens = e_ct
+                                        chosen_model = expensive_model
+                                        chosen_name = expensive_model.name
+                                        is_case_escalated = True
+                                        hop_count = 2
+                                        trace_chain.append({
+                                            "stage_index": 4,
+                                            "stage_type": "escalate_model",
+                                            "name": expensive_model.name,
+                                            "provider": getattr(expensive_model, "provider", "none"),
+                                            "status": "success",
+                                            "start_ms": round(cur_start_ms, 2),
+                                            "duration_ms": esc_dur_ms,
+                                            "tokens": {"prompt": e_pt, "completion": e_ct, "total": e_pt + e_ct},
+                                            "cost_usd": round(self._calc_model_cost(expensive_model, e_pt, e_ct), 6),
+                                            "detail": f"升级至高阶模型调用成功 (200 OK)",
+                                            "snippet": (e_txt[:140] + "...") if len(e_txt) > 140 else e_txt,
+                                        })
+                            except Exception:
+                                pass
                     else:
-                        err_msg = f"未配置提供商或端点 (provider: {provider_id})"
+                        # 首选模型调用失败或超时，记录并尝试容灾降级调度
+                        err_msg = err
+                        trace_chain.append({
+                            "stage_index": 2,
+                            "stage_type": "primary_model",
+                            "name": chosen_name,
+                            "provider": getattr(chosen_model, "provider", "none"),
+                            "status": "timeout" if "超时" in err else "error",
+                            "start_ms": round(cur_start_ms, 2),
+                            "duration_ms": stage_dur_ms,
+                            "tokens": {"prompt": prompt_tokens, "completion": 0, "total": prompt_tokens},
+                            "cost_usd": 0.0,
+                            "detail": f"调用失败: {err}",
+                            "snippet": "首次选择模型未解决问题，准备自动容灾重试",
+                        })
+                        cur_start_ms += stage_dur_ms
+
+                        # 挑选备选模型容灾
+                        fallback_cand = expensive_model if (expensive_model and expensive_model.name != chosen_name) else cheap_model
+                        if fallback_cand and fallback_cand.name != chosen_name:
+                            fb_prov = self.router.config.providers.get(fallback_cand.provider) if hasattr(self.router.config, "providers") else None
+                            fb_succ, fb_dur, fb_txt, fb_pt, fb_ct, fb_err = await call_model_api(fallback_cand, fb_prov, output_tokens)
+                            real_dur += fb_dur
+                            fb_dur_ms = round(fb_dur * 1000.0, 2)
+                            if fb_succ:
+                                real_response_text = fb_txt
+                                real_p_tokens = fb_pt
+                                real_o_tokens = fb_ct
+                                chosen_model = fallback_cand
+                                chosen_name = fallback_cand.name
+                                is_case_escalated = True
+                                hop_count = 2
+                                err_msg = ""
+                                trace_chain.append({
+                                    "stage_index": 3,
+                                    "stage_type": "fallback_model",
+                                    "name": fallback_cand.name,
+                                    "provider": getattr(fallback_cand, "provider", "none"),
+                                    "status": "success",
+                                    "start_ms": round(cur_start_ms, 2),
+                                    "duration_ms": fb_dur_ms,
+                                    "tokens": {"prompt": fb_pt, "completion": fb_ct, "total": fb_pt + fb_ct},
+                                    "cost_usd": round(self._calc_model_cost(fallback_cand, fb_pt, fb_ct), 6),
+                                    "detail": f"容灾转发备选模型执行成功",
+                                    "snippet": (fb_txt[:140] + "...") if len(fb_txt) > 140 else fb_txt,
+                                })
 
                 total_request_latency += real_dur
 
@@ -461,6 +728,9 @@ class BenchmarkEvaluator:
                     real_latency_s=round(real_dur, 3),
                     real_response=real_response_text,
                     error=err_msg,
+                    trace_chain=trace_chain,
+                    hop_count=hop_count,
+                    escalated=is_case_escalated,
                 )
 
             tasks = [run_single_case(i, case) for i, case in enumerate(cases)]
@@ -484,6 +754,20 @@ class BenchmarkEvaluator:
         tot_savings_pct = round((tot_savings / tot_exp * 100.0), 2) if tot_exp > 0 else 0.0
         aligned_cnt = sum(1 for r in results if r.is_aligned)
 
+        trace_topology_stats = {
+            "total_cases": len(results),
+            "direct_success_count": sum(1 for r in results if not r.escalated and not r.error),
+            "escalated_count": sum(1 for r in results if r.escalated),
+            "error_count": sum(1 for r in results if r.error),
+            "hop_distribution": {
+                "1_hop": sum(1 for r in results if r.hop_count == 1),
+                "2_hops": sum(1 for r in results if r.hop_count >= 2),
+            },
+            "avg_classifier_ms": round(total_classifier_latency / max(1, len(results)), 2),
+            "avg_primary_ms": round(sum(r.trace_chain[1]["duration_ms"] for r in results if len(r.trace_chain) > 1) / max(1, len(results)), 2),
+            "avg_escalate_ms": round(sum(r.trace_chain[-1]["duration_ms"] for r in results if r.escalated and len(r.trace_chain) > 2) / max(1, sum(1 for r in results if r.escalated)), 2) if any(r.escalated for r in results) else 0.0,
+        }
+
         return BenchmarkSummary(
             timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
             mode="real_benchmark",
@@ -503,6 +787,7 @@ class BenchmarkEvaluator:
             currency_symbol=self.currency_symbol,
             usd_cny_rate=self.usd_cny_rate,
             config_snapshot=self._build_config_snapshot(),
+            trace_topology_stats=trace_topology_stats,
             results=list(results),
         )
 
