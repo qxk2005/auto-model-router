@@ -571,22 +571,22 @@ body {
 .table-wrap {
   width: 100%;
   max-width: 100%;
-  overflow-x: auto;
+  overflow-x: scroll !important; /* 强制水平滚动条常驻显式，杜绝 macOS/WebKit 在宽屏下自动隐藏 */
   -webkit-overflow-scrolling: touch;
   border-radius: 10px;
   border: 1px solid var(--card-border);
   box-sizing: border-box;
   background: #ffffff;
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 #f8fafc;
+  scrollbar-color: #94a3b8 #f1f5f9;
 }
 
 /* 覆盖 macOS/WebKit 系统默认自动隐藏滚动条机制，保持精致滚动条常驻显式可见与随时拖拽 */
 .table-wrap::-webkit-scrollbar {
-  height: 9px;
-  width: 9px;
-  display: block;
-  background: #f8fafc;
+  height: 10px !important;
+  width: 10px !important;
+  display: block !important;
+  background: #f1f5f9;
 }
 
 .table-wrap::-webkit-scrollbar-track {
@@ -596,22 +596,22 @@ body {
 }
 
 .table-wrap::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #94a3b8;
   border-radius: 6px;
   border: 2px solid #f1f5f9;
 }
 
 .table-wrap::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #64748b;
 }
 
 .table-wrap::-webkit-scrollbar-thumb:active {
-  background: #64748b;
+  background: #334155;
 }
 
 .data-table {
   width: 100%;
-  min-width: 1080px; /* 保证双币种价格、探测药丸、操作按钮等 10 列舒展排布，彻底杜绝内容挤压折行 */
+  min-width: 1280px; /* 10 列舒适舒展展开，彻底杜绝内容挤压，在任意常规宽度屏幕下均稳定触发水平滑动 */
   border-collapse: collapse;
   font-size: 13px;
 }
