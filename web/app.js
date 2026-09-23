@@ -519,11 +519,16 @@ async function startBenchmark() {
   }
 }
 
-// Load Historical Reports List
+// Load Historical Reports List with Checkbox & Deletion Actions
 async function loadReportsList() {
   const tbody = document.getElementById("reportsTableBody");
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="4" style="color:var(--text-muted);text-align:center;">加载中...</td></tr>`;
+
+  const selectAllChk = document.getElementById("selectAllReportsChk");
+  if (selectAllChk) selectAllChk.checked = false;
+  updateBatchDeleteReportsBtn();
+
+  tbody.innerHTML = `<tr><td colspan="5" style="color:var(--text-muted);text-align:center;">加载中...</td></tr>`;
 
   try {
     const res = await fetch("/api/reports");
@@ -531,26 +536,117 @@ async function loadReportsList() {
     const reports = await res.json();
 
     if (reports.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" style="color:var(--text-muted);text-align:center;">暂无历史报告，点击上方“一键开始运行测试”即可生成。</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" style="color:var(--text-muted);text-align:center;">暂无历史报告，点击上方“一键开始运行测试”即可生成。</td></tr>`;
       return;
     }
 
     tbody.innerHTML = "";
-    reports.forEach(r => {
+    reports.forEach((r, idx) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
+        <td style="text-align: center;">
+          <input type="checkbox" class="report-row-chk" value="${r.filename}" id="rep_chk_${idx}" onchange="onReportCheckboxChanged()" style="cursor: pointer;">
+        </td>
         <td><strong style="color:var(--primary); font-family:var(--font-mono);">${r.filename}</strong></td>
         <td>${r.created_at}</td>
         <td>${r.size_kb} KB</td>
         <td>
           <a href="${r.url}" target="_blank" class="btn btn-secondary btn-sm" style="margin-right:6px;">👁️ 在线预览</a>
-          <a href="${r.url}?download=1" class="btn btn-primary btn-sm">⬇️ 下载</a>
+          <a href="${r.url}?download=1" class="btn btn-primary btn-sm" style="margin-right:6px;">⬇️ 下载</a>
+          <button class="btn btn-secondary btn-sm" style="color:var(--danger);" onclick="deleteSingleReport('${r.filename}')">🗑️ 删除</button>
         </td>
       `;
       tbody.appendChild(tr);
     });
   } catch (err) {
     console.error("Failed to load reports:", err);
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--danger);text-align:center;">加载报告列表失败: ${err.message}</td></tr>`;
+  }
+}
+
+function onReportCheckboxChanged() {
+  const allRows = document.querySelectorAll(".report-row-chk");
+  const checkedRows = document.querySelectorAll(".report-row-chk:checked");
+  const selectAllChk = document.getElementById("selectAllReportsChk");
+
+  if (selectAllChk) {
+    selectAllChk.checked = allRows.length > 0 && allRows.length === checkedRows.length;
+  }
+  updateBatchDeleteReportsBtn();
+}
+
+function toggleSelectAllReports(checked) {
+  const allRows = document.querySelectorAll(".report-row-chk");
+  allRows.forEach(chk => {
+    chk.checked = checked;
+  });
+  updateBatchDeleteReportsBtn();
+}
+
+function updateBatchDeleteReportsBtn() {
+  const checkedRows = document.querySelectorAll(".report-row-chk:checked");
+  const btn = document.getElementById("btnBatchDeleteReports");
+  const text = document.getElementById("batchDeleteReportsText");
+
+  if (!btn || !text) return;
+
+  if (checkedRows.length > 0) {
+    btn.style.display = "inline-flex";
+    text.textContent = `批量删除 (已选 ${checkedRows.length} 项)`;
+  } else {
+    btn.style.display = "none";
+  }
+}
+
+async function deleteSingleReport(filename) {
+  if (!confirm(`确定要彻底删除评估报告 "${filename}" 吗？此操作无法撤销。`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/reports/${encodeURIComponent(filename)}`, {
+      method: "DELETE",
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`报告 [${filename}] 已成功删除！`, "success");
+      loadReportsList();
+    } else {
+      showToast(`删除失败: ${data.detail || data.error || '未知错误'}`, "danger");
+    }
+  } catch (err) {
+    showToast(`删除出错: ${err.message}`, "danger");
+  }
+}
+
+async function batchDeleteSelectedReports() {
+  const checkedBoxes = document.querySelectorAll(".report-row-chk:checked");
+  const filenames = Array.from(checkedBoxes).map(c => c.value);
+
+  if (filenames.length === 0) {
+    showToast("请先勾选需要删除的评估报告", "warning");
+    return;
+  }
+
+  if (!confirm(`确定要批量彻底删除选中的 ${filenames.length} 个评估报告吗？此操作无法撤销。`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/reports/batch-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filenames }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(data.message || `成功删除 ${data.deleted_count} 个报告！`, "success");
+      loadReportsList();
+    } else {
+      showToast(`批量删除失败: ${data.detail || '未知错误'}`, "danger");
+    }
+  } catch (err) {
+    showToast(`批量删除出错: ${err.message}`, "danger");
   }
 }
 

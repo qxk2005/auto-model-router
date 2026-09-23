@@ -456,14 +456,24 @@
               <h3>📑 历史评估报告归档 (Historical HTML Reports)</h3>
               <p>所有生成的自包含 HTML 报告文件均保存在 `reports/` 目录下，可随时离线查看或下载分享</p>
             </div>
-            <button class="btn btn-secondary" onclick="loadReportsList()">
-              <span>刷新报告列表</span>
-            </button>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <button class="btn btn-secondary btn-sm" id="btnBatchDeleteReports" onclick="batchDeleteSelectedReports()" style="display: none; color: var(--danger); border-color: rgba(220, 38, 38, 0.3);">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                <span id="batchDeleteReportsText">批量删除 (已选 0 项)</span>
+              </button>
+              <button class="btn btn-secondary btn-sm" onclick="loadReportsList()">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                <span>刷新报告列表</span>
+              </button>
+            </div>
           </div>
           <div class="table-wrap">
             <table class="data-table">
               <thead>
                 <tr>
+                  <th style="width: 44px; text-align: center;">
+                    <input type="checkbox" id="selectAllReportsChk" onchange="toggleSelectAllReports(this.checked)" title="全选 / 取消全选" style="cursor: pointer;">
+                  </th>
                   <th>报告文件名</th>
                   <th>生成时间</th>
                   <th>大小</th>
