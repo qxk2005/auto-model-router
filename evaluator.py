@@ -229,94 +229,99 @@ class BenchmarkEvaluator:
         )
 
     async def run_real_benchmark(self, cases: list[dict], on_progress: Callable[[int, int], None] | None = None) -> BenchmarkSummary:
-        """Run real benchmark by actually sending HTTP requests to the chosen provider."""
+        """Run real benchmark with controlled concurrency (Semaphore=2) to avoid timeouts."""
         expensive_model, cheap_model = self._get_baseline_models()
-        results: list[CaseResult] = []
         model_dist: dict[str, int] = {}
         cat_stats: dict[str, dict[str, Any]] = {}
         total_classifier_latency = 0.0
         total_request_latency = 0.0
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            for idx, item in enumerate(cases):
+        sem = asyncio.Semaphore(2)
+        loop = asyncio.get_event_loop()
+
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            async def run_single_case(idx: int, item: dict) -> CaseResult:
+                nonlocal total_classifier_latency, total_request_latency
                 cid = item.get("id", f"case_{idx+1}")
                 prompt = item.get("prompt", "")
                 cat_expected = item.get("category", "general")
                 diff_tag = item.get("difficulty_tag", "easy")
                 expected_tier = item.get("expected_tier", "cheap")
+                prompt_tokens = int(item.get("estimated_prompt_tokens", len(prompt) // 2 or 30))
+                output_tokens = int(item.get("estimated_output_tokens", 100))
 
-                # 1. Classification
-                t0 = time.perf_counter()
-                classifier_fn = getattr(self.router, "classifier", None)
-                if callable(classifier_fn):
-                    # Run classifier in executor if sync
-                    loop = asyncio.get_event_loop()
-                    clf = await loop.run_in_executor(None, classifier_fn, prompt)
-                else:
-                    clf = Classification(category=cat_expected, category_probs={}, difficulty=0.5,
-                                         difficulty_confidence=0.5, needs_tools=0.0, needs_vision=0.0,
-                                         needs_long_context=0.0, follow_up=0.0, stakes=0.5, latency_s=0.03)
-                lat_ms = (clf.latency_s or (time.perf_counter() - t0)) * 1000.0
-                total_classifier_latency += lat_ms
-
-                # 2. Routing Decision
-                est_p_tokens = len(prompt) // 2 or 30
-                req = TurnRequest(category=clf.category or cat_expected, difficulty=clf.difficulty,
-                                  prompt_tokens=est_p_tokens, output_tokens=150, now=time.time())
-                conv = Conversation()
-                ctx = Context(catalog=self.catalog, success=getattr(self.router, "success", None))
+                # 1. 运行标准路由决策流程（在线程池中运行 Laya 推断）
                 try:
-                    choice = self.policy.choose(conv, req, ctx)
-                    chosen_model = choice.model if choice else cheap_model
-                    reason = choice.reason if choice else "default"
+                    route_res = await loop.run_in_executor(
+                        None,
+                        lambda: self.router.route(
+                            messages=[{"role": "user", "content": prompt}],
+                            max_tokens=output_tokens
+                        )
+                    )
+                    chosen_model = route_res.model
+                    chosen_name = chosen_model.name
+                    reason = route_res.reason
+                    clf = route_res.classification
+                    lat_ms = route_res.classification_ms or (clf.latency_s * 1000.0 if clf else 30.0)
                 except Exception as e:
                     chosen_model = cheap_model
-                    reason = str(e)
+                    chosen_name = cheap_model.name if cheap_model else "fallback"
+                    reason = f"route error: {e}"
+                    clf = None
+                    lat_ms = 30.0
 
-                chosen_name = chosen_model.name if chosen_model else "unknown"
-                model_dist[chosen_name] = model_dist.get(chosen_name, 0) + 1
+                total_classifier_latency += lat_ms
 
-                # 3. Dispatch real HTTP call to chosen model's provider
-                provider = self.router.config.providers.get(chosen_model.provider) if chosen_model else None
+                # 2. 向选中模型对应的上游提供商发起真实 HTTP 调用
+                provider_id = getattr(chosen_model, "provider", None) if chosen_model else None
+                provider = None
+                if provider_id and hasattr(self.router, "config") and hasattr(self.router.config, "providers"):
+                    provider = self.router.config.providers.get(provider_id)
+
                 real_response_text = ""
-                real_p_tokens = est_p_tokens
-                real_o_tokens = 100
+                real_p_tokens = prompt_tokens
+                real_o_tokens = output_tokens
                 real_dur = 0.0
                 err_msg = ""
 
-                if provider and provider.base_url:
-                    t_req_start = time.perf_counter()
-                    try:
-                        headers = {"Content-Type": "application/json"}
-                        key = provider.api_key
-                        if key:
-                            headers["Authorization"] = f"Bearer {key}"
-                        headers.update(provider.extra_headers)
+                async with sem:
+                    if provider and provider.base_url:
+                        base_url = (provider.base_url or "").strip().rstrip("/")
+                        url = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
+                        t_req_start = time.perf_counter()
+                        try:
+                            headers = {"Content-Type": "application/json"}
+                            key = provider.api_key
+                            if key:
+                                headers["Authorization"] = f"Bearer {key}"
+                            if hasattr(provider, "extra_headers") and provider.extra_headers:
+                                headers.update(provider.extra_headers)
 
-                        payload = {
-                            "model": chosen_model.upstream_id or "default",
-                            "messages": [{"role": "user", "content": prompt}],
-                            "max_tokens": 1000,
-                            "temperature": 0.7,
-                        }
-                        url = f"{provider.base_url}/chat/completions"
-                        res = await client.post(url, json=payload, headers=headers)
-                        real_dur = time.perf_counter() - t_req_start
-                        if res.status_code == 200:
-                            data = res.json()
-                            choices = data.get("choices", [])
-                            if choices:
-                                real_response_text = choices[0].get("message", {}).get("content", "")
-                            usage = data.get("usage", {})
-                            real_p_tokens = usage.get("prompt_tokens", est_p_tokens)
-                            real_o_tokens = usage.get("completion_tokens", len(real_response_text) // 2)
-                        else:
-                            err_msg = f"HTTP {res.status_code}: {res.text[:200]}"
-                    except Exception as exc:
-                        real_dur = time.perf_counter() - t_req_start
-                        err_msg = f"Request error: {exc}"
-                else:
-                    err_msg = "No provider configured for chosen model"
+                            upstream_id = getattr(chosen_model, "upstream_id", None) or getattr(chosen_model, "name", "default")
+                            payload = {
+                                "model": upstream_id,
+                                "messages": [{"role": "user", "content": prompt}],
+                                "max_tokens": min(output_tokens, 150),
+                                "temperature": 0.7,
+                            }
+                            res = await client.post(url, json=payload, headers=headers)
+                            real_dur = time.perf_counter() - t_req_start
+                            if res.status_code == 200:
+                                data = res.json()
+                                choices = data.get("choices", [])
+                                if choices:
+                                    real_response_text = choices[0].get("message", {}).get("content", "")
+                                usage = data.get("usage", {})
+                                real_p_tokens = usage.get("prompt_tokens", prompt_tokens)
+                                real_o_tokens = usage.get("completion_tokens", len(real_response_text) // 2 or output_tokens)
+                            else:
+                                err_msg = f"HTTP {res.status_code}: {res.text[:200]}"
+                        except Exception as exc:
+                            real_dur = time.perf_counter() - t_req_start
+                            err_msg = f"Request error: {exc}"
+                    else:
+                        err_msg = f"未配置提供商或端点 (provider: {provider_id})"
 
                 total_request_latency += real_dur
 
@@ -329,37 +334,50 @@ class BenchmarkEvaluator:
                 tier_chosen = "cheap" if (chosen_model and (getattr(chosen_model, "free", False) or getattr(chosen_model.prices, "is_free", False))) else ("expensive" if (chosen_model == expensive_model) else "mid")
                 is_aligned = (expected_tier == "expensive" and tier_chosen == "expensive") or (expected_tier in ("cheap", "mid") and tier_chosen in ("cheap", "mid"))
 
-                results.append(
-                    CaseResult(
-                        case_id=cid,
-                        category=cat_expected,
-                        difficulty_tag=diff_tag,
-                        prompt=prompt,
-                        expected_tier=expected_tier,
-                        detected_category=clf.category,
-                        detected_difficulty=round(clf.difficulty, 3),
-                        detected_stakes=round(clf.stakes, 3),
-                        classifier_latency_ms=round(lat_ms, 2),
-                        chosen_model=chosen_name,
-                        chosen_provider=chosen_model.provider if chosen_model else "none",
-                        decision_reason=reason,
-                        prompt_tokens=real_p_tokens,
-                        output_tokens=real_o_tokens,
-                        total_tokens=real_p_tokens + real_o_tokens,
-                        cost_router=round(cost_router, 6),
-                        cost_expensive=round(cost_exp, 6),
-                        cost_cheap=round(cost_chp, 6),
-                        savings_usd=round(savings_usd, 6),
-                        savings_pct=savings_pct,
-                        is_aligned=is_aligned,
-                        real_execution=True,
-                        real_latency_s=round(real_dur, 3),
-                        real_response=real_response_text,
-                        error=err_msg,
-                    )
-                )
                 if on_progress:
                     on_progress(idx + 1, len(cases))
+
+                return CaseResult(
+                    case_id=cid,
+                    category=cat_expected,
+                    difficulty_tag=diff_tag,
+                    prompt=prompt,
+                    expected_tier=expected_tier,
+                    detected_category=clf.category if clf else cat_expected,
+                    detected_difficulty=round(clf.difficulty, 3) if clf else 0.5,
+                    detected_stakes=round(clf.stakes, 3) if clf else 0.5,
+                    classifier_latency_ms=round(lat_ms, 2),
+                    chosen_model=chosen_name,
+                    chosen_provider=getattr(chosen_model, "provider", "none") if chosen_model else "none",
+                    decision_reason=reason,
+                    prompt_tokens=real_p_tokens,
+                    output_tokens=real_o_tokens,
+                    total_tokens=real_p_tokens + real_o_tokens,
+                    cost_router=round(cost_router, 6),
+                    cost_expensive=round(cost_exp, 6),
+                    cost_cheap=round(cost_chp, 6),
+                    savings_usd=round(savings_usd, 6),
+                    savings_pct=savings_pct,
+                    is_aligned=is_aligned,
+                    real_execution=True,
+                    real_latency_s=round(real_dur, 3),
+                    real_response=real_response_text,
+                    error=err_msg,
+                )
+
+            tasks = [run_single_case(i, case) for i, case in enumerate(cases)]
+            results = await asyncio.gather(*tasks)
+
+        # 汇总统计
+        for r in results:
+            model_dist[r.chosen_model] = model_dist.get(r.chosen_model, 0) + 1
+            cat_info = cat_stats.setdefault(r.category, {"total": 0, "savings_usd": 0.0, "cheap_count": 0, "exp_count": 0})
+            cat_info["total"] += 1
+            cat_info["savings_usd"] += r.savings_usd
+            if r.cost_router == 0.0 or r.savings_pct > 80.0:
+                cat_info["cheap_count"] += 1
+            elif r.cost_router == r.cost_expensive:
+                cat_info["exp_count"] += 1
 
         tot_router = sum(r.cost_router for r in results)
         tot_exp = sum(r.cost_expensive for r in results)
@@ -386,5 +404,6 @@ class BenchmarkEvaluator:
             category_breakdown=cat_stats,
             currency_symbol=self.currency_symbol,
             usd_cny_rate=self.usd_cny_rate,
-            results=results,
+            results=list(results),
         )
+
