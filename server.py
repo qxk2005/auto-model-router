@@ -32,6 +32,7 @@ from auto_router.config import for_http, load_config, save_config
 from auto_router.jev import LocalLayaClassifier
 from auto_router.router import Router
 from evaluator import BenchmarkEvaluator, BenchmarkSummary
+from open_llm_leaderboard import CACHE_FILE, leaderboard_mgr
 from reporter import ReportGenerator
 
 # Ensure logging is configured
@@ -707,6 +708,54 @@ async def batch_delete_reports(payload: BatchDeleteReportsRequest):
         "failed_files": failed,
         "message": f"成功删除 {len(deleted)} 个报告" + (f"，{len(failed)} 个处理失败" if failed else ""),
     }
+
+
+# ---------------------------------------------------------------------------
+# Open LLM Leaderboard Benchmark & Capability APIs
+# ---------------------------------------------------------------------------
+@app.get("/api/leaderboard")
+async def get_leaderboard(
+    q: str = "",
+    sort_by: str = "average",
+    order: str = "desc",
+    limit: int = 50,
+    offset: int = 0,
+    architecture: str = "",
+):
+    """Query Open LLM Leaderboard models with search, sorting and pagination."""
+    return leaderboard_mgr.query(
+        q=q,
+        sort_by=sort_by,
+        order=order,
+        limit=limit,
+        offset=offset,
+        architecture=architecture,
+    )
+
+
+@app.post("/api/leaderboard/sync")
+async def sync_leaderboard(max_pages: int = 15):
+    """Sync latest benchmark records from Hugging Face dataset server."""
+    result = await leaderboard_mgr.sync_from_huggingface(max_pages=max_pages)
+    return result
+
+
+@app.get("/api/leaderboard/match")
+async def match_leaderboard_model(model_id: str = "", top_k: int = 5):
+    """Fuzzy match a model ID / name to the best benchmark model and compute Laya capabilities."""
+    return leaderboard_mgr.match_model(model_id_or_name=model_id, top_k=top_k)
+
+
+@app.api_route("/api/leaderboard/download", methods=["GET", "HEAD"])
+async def download_leaderboard_cache():
+    """Download local full JSON cache of Open LLM Leaderboard."""
+    if not CACHE_FILE.exists():
+        raise HTTPException(status_code=404, detail="本地排行榜缓存文件不存在")
+    return FileResponse(
+        path=str(CACHE_FILE),
+        filename="open_llm_leaderboard.json",
+        media_type="application/json",
+    )
 
 
 # ---------------------------------------------------------------------------

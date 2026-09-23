@@ -28,7 +28,7 @@ function showToast(message, type = "info") {
 
 // Tab Switching
 function switchTab(tabId) {
-  const tabs = ["monitor", "models", "policy", "benchmark"];
+  const tabs = ["monitor", "models", "policy", "benchmark", "leaderboard"];
   tabs.forEach(t => {
     const pane = document.getElementById(`pane${t.charAt(0).toUpperCase() + t.slice(1)}`);
     const nav = document.getElementById(`nav${t.charAt(0).toUpperCase() + t.slice(1)}`);
@@ -41,10 +41,15 @@ function switchTab(tabId) {
     models: ["提供商与模型管理", "配置 OpenAI 兼容提供商矩阵及各级模型 Token 计费单价与可用性测试"],
     policy: ["Router 策略与 Laya 参数", "微调经济成本模型风险权重、缓存生命周期与 Laya 运行设备"],
     benchmark: ["测试中心与评估报告", "运行典型降本测试集，测算智能分流降本幅度并导出自包含 HTML 报告"],
+    leaderboard: ["大模型权威评分查询与天梯榜", "基于 Hugging Face Open LLM Leaderboard 权威评测数据集，查阅全量大模型多维跑分与一键同步"],
   };
   if (titles[tabId]) {
     document.getElementById("pageTitleText").textContent = titles[tabId][0];
     document.getElementById("pageSubtitleText").textContent = titles[tabId][1];
+  }
+
+  if (tabId === "leaderboard") {
+    loadLeaderboardData();
   }
 }
 
@@ -1054,6 +1059,7 @@ function openAddModelModal() {
   document.getElementById("capReasoningInput").value = "0.85";
   document.getElementById("capGeneralInput").value = "0.85";
 
+  switchModelModalTab("basic");
   onModelProviderChanged();
   updatePricingUsdDisplay();
   document.getElementById("modelModal").style.display = "flex";
@@ -1136,8 +1142,10 @@ function openEditModelModal(modelIdx) {
   document.getElementById("capReasoningInput").value = normalizeCap(cap.reasoning);
   document.getElementById("capGeneralInput").value = normalizeCap(cap.general);
 
+  switchModelModalTab("basic");
   onModelFreeToggled();
   updatePricingUsdDisplay();
+  fetchAndMatchLeaderboard(m.upstream_id || m.name);
   document.getElementById("modelModal").style.display = "flex";
 }
 
@@ -1220,6 +1228,26 @@ function onModelUpstreamChanged() {
     document.getElementById("modelCachePrice").value = 0.7;
   }
   updatePricingUsdDisplay();
+
+  // Trigger Leaderboard fuzzy match based on current upstream / custom input
+  const queryModelId = val === "__custom__" 
+    ? document.getElementById("modelCustomUpstreamInput").value.trim() 
+    : val;
+  if (queryModelId) {
+    fetchAndMatchLeaderboard(queryModelId);
+  }
+}
+
+let customInputTimer = null;
+function onCustomUpstreamInputChanged() {
+  clearTimeout(customInputTimer);
+  customInputTimer = setTimeout(() => {
+    const val = document.getElementById("modelCustomUpstreamInput").value.trim();
+    if (val) {
+      document.getElementById("modelNameInput").value = val.split("/").pop().replace(/[:.]/g, "-");
+      fetchAndMatchLeaderboard(val);
+    }
+  }, 400);
 }
 
 function onModelFreeToggled() {
@@ -1439,4 +1467,347 @@ function deleteModel(idx) {
     savePolicyConfig();
     renderModels();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Model Modal Sub-Tabs Controller
+// ---------------------------------------------------------------------------
+function switchModelModalTab(tabKey) {
+  const tabs = ["basic", "pricing", "capabilities"];
+  tabs.forEach(t => {
+    const btn = document.getElementById(`btnTabModel${t.charAt(0).toUpperCase() + t.slice(1)}`);
+    const panel = document.getElementById(`tabModel${t.charAt(0).toUpperCase() + t.slice(1)}`);
+    if (btn) btn.classList.toggle("active", t === tabKey);
+    if (panel) panel.classList.toggle("active", t === tabKey);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Open LLM Leaderboard: Match & Capabilities Auto-Fill
+// ---------------------------------------------------------------------------
+let currentLeaderboardMatchState = null;
+let currentActiveBenchmarkModel = null;
+
+async function fetchAndMatchLeaderboard(modelIdOrName) {
+  const targetId = modelIdOrName || 
+    (document.getElementById("modelUpstreamSelect").value === "__custom__"
+      ? document.getElementById("modelCustomUpstreamInput").value.trim()
+      : document.getElementById("modelUpstreamSelect").value) ||
+    document.getElementById("modelNameInput").value.trim();
+
+  if (!targetId || targetId === "default") {
+    // Fallback query
+    return;
+  }
+
+  const linkEl = document.getElementById("hfMatchedModelLink");
+  if (linkEl) linkEl.textContent = "正在匹配权威评测数据...";
+
+  try {
+    const res = await fetch(`/api/leaderboard/match?model_id=${encodeURIComponent(targetId)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    currentLeaderboardMatchState = data;
+    renderMatchedLeaderboardCard(data);
+  } catch (err) {
+    console.error("Leaderboard match error:", err);
+  }
+}
+
+function renderMatchedLeaderboardCard(data) {
+  const best = data.best_match;
+  if (!best) return;
+  currentActiveBenchmarkModel = best;
+
+  const linkEl = document.getElementById("hfMatchedModelLink");
+  linkEl.textContent = best.fullname || best.name;
+  linkEl.href = best.hf_url || `https://huggingface.co/${best.fullname}`;
+
+  const confPill = document.getElementById("hfConfidencePill");
+  const pct = Math.round((data.confidence || 0.8) * 100);
+  confPill.textContent = `匹配度 ${pct}%`;
+  confPill.style.background = pct >= 80 ? "#ecfdf5" : (pct >= 50 ? "#e0f2fe" : "#fef3c7");
+  confPill.style.color = pct >= 80 ? "#059669" : (pct >= 50 ? "#0284c7" : "#d97706");
+  confPill.style.borderColor = pct >= 80 ? "#a7f3d0" : (pct >= 50 ? "#bae6fd" : "#fde68a");
+
+  document.getElementById("hfKpiAvg").textContent = (best.average || 0).toFixed(1);
+  document.getElementById("hfKpiParams").textContent = (best.params ? best.params.toFixed(1) : "--") + " B";
+  document.getElementById("hfKpiArch").textContent = best.architecture || "Unknown";
+
+  // 6 Weyaxi metric progress bars
+  const setBar = (scoreId, fillId, val) => {
+    const num = val || 0;
+    document.getElementById(scoreId).textContent = num.toFixed(1);
+    document.getElementById(fillId).style.width = `${Math.min(100, Math.max(0, num))}%`;
+  };
+
+  setBar("hfBarIfeval", "hfFillIfeval", best.ifeval);
+  setBar("hfBarBbh", "hfFillBbh", best.bbh);
+  setBar("hfBarMath", "hfFillMath", best.math);
+  setBar("hfBarMmluPro", "hfFillMmluPro", best.mmlu_pro);
+  setBar("hfBarGpqa", "hfFillGpqa", best.gpqa);
+  setBar("hfBarMusr", "hfFillMusr", best.musr);
+
+  // Candidates dropdown
+  const candSelect = document.getElementById("hfCandidatesSelect");
+  candSelect.innerHTML = "";
+  (data.candidates || [best]).forEach((c, idx) => {
+    const opt = document.createElement("option");
+    opt.value = c.fullname;
+    opt.textContent = `${idx === 0 ? "★ " : ""}${c.fullname} (均分: ${c.average})`;
+    if (c.fullname === best.fullname) opt.selected = true;
+    candSelect.appendChild(opt);
+  });
+}
+
+function onSelectMatchedCandidate(fullname) {
+  if (!currentLeaderboardMatchState || !currentLeaderboardMatchState.candidates) return;
+  const found = currentLeaderboardMatchState.candidates.find(c => c.fullname === fullname);
+  if (found) {
+    currentActiveBenchmarkModel = found;
+    // Re-render with new candidate as best
+    renderMatchedLeaderboardCard({
+      ...currentLeaderboardMatchState,
+      best_match: found,
+      confidence: 0.9,
+    });
+  }
+}
+
+function applyLeaderboardCapabilitiesToForm() {
+  if (!currentActiveBenchmarkModel) {
+    showToast("当前暂无已匹配的权威评测项", "warning");
+    return;
+  }
+
+  // Calculate capabilities based on current model
+  const m = currentActiveBenchmarkModel;
+  const avg = m.average || 50.0;
+  const mathVal = m.math && m.math > 0 ? m.math : avg * 0.9;
+  const codingVal = m.mmlu_pro && m.mmlu_pro > 0 ? m.mmlu_pro : avg * 0.95;
+  const reasoningVal = (m.bbh || avg) * 0.5 + (m.gpqa || avg) * 0.3 + (m.musr || avg) * 0.2;
+  const generalVal = (m.ifeval || avg) * 0.6 + avg * 0.4;
+
+  const clamp = v => Math.max(0.1, Math.min(1.0, parseFloat((v / 100).toFixed(2))));
+
+  const codingInput = document.getElementById("capCodingInput");
+  const mathInput = document.getElementById("capMathInput");
+  const reasoningInput = document.getElementById("capReasoningInput");
+  const generalInput = document.getElementById("capGeneralInput");
+
+  codingInput.value = clamp(codingVal);
+  mathInput.value = clamp(mathVal);
+  reasoningInput.value = clamp(reasoningVal);
+  generalInput.value = clamp(generalVal);
+
+  // Flash highlight animation on inputs
+  [codingInput, mathInput, reasoningInput, generalInput].forEach(el => {
+    el.style.transition = "all 0.3s ease";
+    el.style.borderColor = "#10b981";
+    el.style.background = "#ecfdf5";
+    setTimeout(() => {
+      el.style.borderColor = "";
+      el.style.background = "";
+    }, 1200);
+  });
+
+  showToast(`已成功套用 [${m.name || m.fullname}] 权威评测跑分换算！`, "success");
+}
+
+function viewMatchedModelFullDetails() {
+  if (!currentActiveBenchmarkModel) return;
+  openLeaderboardDetailModal(currentActiveBenchmarkModel);
+}
+
+function openLeaderboardDetailModal(m) {
+  if (!m) return;
+  document.getElementById("lbDetailModalTitle").textContent = m.fullname || m.name;
+  document.getElementById("lbDetailModalSubtitle").textContent = `架构: ${m.architecture || '--'} | 精度: ${m.precision || '--'} | 类型: ${m.type || '--'}`;
+  
+  document.getElementById("lbDetailAvg").textContent = (m.average || 0).toFixed(2);
+  document.getElementById("lbDetailParams").textContent = (m.params ? m.params.toFixed(1) : "--") + " B";
+  document.getElementById("lbDetailLicense").textContent = m.license || "unknown";
+
+  const hfLink = document.getElementById("lbDetailHfLink");
+  hfLink.href = m.hf_url || `https://huggingface.co/${m.fullname}`;
+
+  // Metrics body
+  const raw = m.raw_data || {};
+  const metrics = [
+    { label: "IFEval (指令遵循能力)", score: m.ifeval, raw: raw["IFEval Raw"] ?? "--", capKey: "General 常识/指令" },
+    { label: "BBH (Big-Bench Hard 逻辑与多步推理)", score: m.bbh, raw: raw["BBH Raw"] ?? "--", capKey: "Reasoning 逻辑推理" },
+    { label: "MATH Lvl 5 (竞赛级数理推导)", score: m.math, raw: raw["MATH Lvl 5 Raw"] ?? "--", capKey: "Math 数理推导" },
+    { label: "GPQA (专家级通用深度问答)", score: m.gpqa, raw: raw["GPQA Raw"] ?? "--", capKey: "Reasoning / General" },
+    { label: "MUSR (多步软推理/常识推演)", score: m.musr, raw: raw["MUSR Raw"] ?? "--", capKey: "Reasoning 逻辑推理" },
+    { label: "MMLU-PRO (多学科与编程代码综合)", score: m.mmlu_pro, raw: raw["MMLU-PRO Raw"] ?? "--", capKey: "Coding 代码编程" },
+  ];
+
+  const tbody = document.getElementById("lbDetailMetricsBody");
+  tbody.innerHTML = metrics.map(item => `
+    <tr>
+      <td style="font-weight: 600;">${item.label}</td>
+      <td><span style="font-weight: 700; color: #0284c7;">${item.score !== undefined ? Number(item.score).toFixed(2) : '--'}</span></td>
+      <td style="font-family: var(--font-mono); color: var(--text-muted);">${item.raw}</td>
+      <td><span class="kpi-badge badge-blue">${item.capKey}</span></td>
+    </tr>
+  `).join("");
+
+  document.getElementById("lbDetailJsonView").textContent = JSON.stringify(m, null, 2);
+  document.getElementById("leaderboardDetailModal").style.display = "flex";
+}
+
+// ---------------------------------------------------------------------------
+// Global Leaderboard Page Controller (paneLeaderboard)
+// ---------------------------------------------------------------------------
+let leaderboardCacheList = [];
+let leaderboardSearchTimer = null;
+
+function onLeaderboardSearch() {
+  clearTimeout(leaderboardSearchTimer);
+  leaderboardSearchTimer = setTimeout(() => {
+    loadLeaderboardData();
+  }, 300);
+}
+
+async function loadLeaderboardData() {
+  const q = document.getElementById("lbSearchInput") ? document.getElementById("lbSearchInput").value.trim() : "";
+  const sortBy = document.getElementById("lbSortSelect") ? document.getElementById("lbSortSelect").value : "average";
+
+  const tbody = document.getElementById("lbTableBody");
+  const loading = document.getElementById("lbTableLoading");
+  const empty = document.getElementById("lbTableEmpty");
+
+  if (loading) loading.style.display = "block";
+  if (empty) empty.style.display = "none";
+  if (tbody) tbody.innerHTML = "";
+
+  try {
+    const res = await fetch(`/api/leaderboard?q=${encodeURIComponent(q)}&sort_by=${sortBy}&limit=100`);
+    if (!res.ok) throw new Error("获取大模型榜单失败");
+    const data = await res.json();
+    leaderboardCacheList = data.models || [];
+
+    if (loading) loading.style.display = "none";
+
+    // Update Hero Stats
+    document.getElementById("lbTotalCount").textContent = data.total || 0;
+    document.getElementById("lbLastSyncTime").textContent = data.updated_at_str || "--";
+    if (leaderboardCacheList.length > 0) {
+      const topScore = Math.max(...leaderboardCacheList.map(m => m.average || 0));
+      document.getElementById("lbAvgTop").textContent = topScore > 0 ? topScore.toFixed(1) : "--";
+    }
+
+    if (leaderboardCacheList.length === 0) {
+      if (empty) empty.style.display = "block";
+      return;
+    }
+
+    // Render Table Rows
+    tbody.innerHTML = leaderboardCacheList.map((m, idx) => {
+      const rank = idx + 1;
+      const rankBadgeClass = rank === 1 ? "rank-1" : (rank === 2 ? "rank-2" : (rank === 3 ? "rank-3" : ""));
+      return `
+        <tr>
+          <td style="text-align: center;">
+            <span class="rank-badge ${rankBadgeClass}">${rank}</span>
+          </td>
+          <td>
+            <div style="font-weight: 600; color: #0f172a; margin-bottom: 2px;">
+              ${escapeHtml(m.fullname || m.name)}
+            </div>
+            <div style="font-size: 11px; display: flex; gap: 8px; align-items: center;">
+              <a href="${m.hf_url || `https://huggingface.co/${m.fullname}`}" target="_blank" style="color: var(--primary); text-decoration: underline;">
+                Hugging Face ↗
+              </a>
+              <span style="color: #cbd5e1;">|</span>
+              <span style="color: var(--text-muted);">协议: ${escapeHtml(m.license || 'unknown')}</span>
+              ${m.likes ? `<span style="color: #ef4444;">❤️ ${m.likes}</span>` : ''}
+            </div>
+          </td>
+          <td>
+            <span class="score-pill-avg">${(m.average || 0).toFixed(1)}</span>
+          </td>
+          <td class="score-cell-sub">${(m.ifeval || 0).toFixed(1)}</td>
+          <td class="score-cell-sub">${(m.bbh || 0).toFixed(1)}</td>
+          <td class="score-cell-sub" style="font-weight: 600; color: #7c3aed;">${(m.math || 0).toFixed(1)}</td>
+          <td class="score-cell-sub">${(m.gpqa || 0).toFixed(1)}</td>
+          <td class="score-cell-sub">${(m.musr || 0).toFixed(1)}</td>
+          <td class="score-cell-sub" style="font-weight: 600; color: #0284c7;">${(m.mmlu_pro || 0).toFixed(1)}</td>
+          <td>
+            <span class="param-badge">${m.params ? m.params.toFixed(1) + 'B' : '--'}</span>
+          </td>
+          <td>
+            <span style="font-size: 11.5px; color: var(--text-muted);">${escapeHtml(m.architecture || '--')}</span>
+          </td>
+          <td style="text-align: center;">
+            <div style="display: flex; gap: 6px; justify-content: center;">
+              <button class="btn btn-secondary btn-sm" style="padding: 4px 8px; font-size: 11px;" onclick="openLeaderboardDetailModal(leaderboardCacheList[${idx}])">
+                明细
+              </button>
+              <button class="btn btn-primary btn-sm" style="padding: 4px 8px; font-size: 11px;" onclick="quickSetupLeaderboardModelAsRoute(leaderboardCacheList[${idx}])">
+                设为路由
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+  } catch (err) {
+    if (loading) loading.style.display = "none";
+    if (empty) {
+      empty.style.display = "block";
+      empty.textContent = `加载失败: ${err.message}`;
+    }
+  }
+}
+
+async function triggerLeaderboardSync() {
+  const btn = document.getElementById("btnSyncLeaderboard");
+  const text = document.getElementById("syncLeaderboardText");
+  btn.disabled = true;
+  text.innerHTML = `<span class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> 正在同步最新数据...`;
+
+  try {
+    const res = await fetch("/api/leaderboard/sync", { method: "POST" });
+    const data = await res.json();
+    if (data.status === "success") {
+      showToast(`同步成功！已收录 ${data.total} 个大模型评测跑分 (耗时 ${data.duration_s}s)`, "success");
+      await loadLeaderboardData();
+    } else {
+      showToast(data.message || "同步完成", "info");
+      await loadLeaderboardData();
+    }
+  } catch (err) {
+    showToast(`同步异常: ${err.message}`, "error");
+  } finally {
+    btn.disabled = false;
+    text.textContent = "一键在线同步最新数据";
+  }
+}
+
+function downloadLeaderboardJson() {
+  showToast("正在导出权威大模型评分全量数据集 JSON...", "info");
+  window.location.href = "/api/leaderboard/download";
+}
+
+function quickSetupLeaderboardModelAsRoute(modelObj) {
+  if (!modelObj) return;
+  switchTab("models");
+  openAddModelModal();
+
+  // Populate model name & custom upstream
+  const upstreamSelect = document.getElementById("modelUpstreamSelect");
+  upstreamSelect.value = "__custom__";
+  document.getElementById("customModelInputBox").style.display = "block";
+  document.getElementById("modelCustomUpstreamInput").value = modelObj.fullname || modelObj.name;
+  document.getElementById("modelNameInput").value = modelObj.name || modelObj.fullname;
+
+  // Switch to Tab 3 and apply capabilities
+  switchModelModalTab("capabilities");
+  fetchAndMatchLeaderboard(modelObj.fullname || modelObj.name).then(() => {
+    applyLeaderboardCapabilitiesToForm();
+  });
+
+  showToast(`已快捷将 [${modelObj.name}] 载入为新路由候选模型，请配置单价后保存！`, "info");
 }

@@ -42,6 +42,10 @@
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
           <span>测试中心与评估报告</span>
         </button>
+        <button class="nav-item" id="navLeaderboard" onclick="switchTab('leaderboard')">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+          <span>🏆 大模型评分查询</span>
+        </button>
       </nav>
 
       <!-- System Pill -->
@@ -487,6 +491,88 @@
           </div>
         </div>
       </div>
+
+      <!-- TAB 5: Open LLM Leaderboard Explorer -->
+      <div class="tab-pane" id="paneLeaderboard">
+        <!-- Hero Header -->
+        <div class="leaderboard-hero">
+          <div class="leaderboard-hero-title">
+            <h2>🏆 全球开源大模型权威天梯榜 (Open LLM Leaderboard)</h2>
+            <p>基于 Hugging Face 官方权威评测数据集 contents，采用 Weyaxi 核心基准多维度对标大模型综合实力</p>
+          </div>
+          <div class="leaderboard-stats-row">
+            <div class="leaderboard-stat-item">
+              <div class="stat-num" id="lbTotalCount">--</div>
+              <div class="stat-label">收录大模型总数</div>
+            </div>
+            <div class="leaderboard-stat-item">
+              <div class="stat-num" id="lbAvgTop">--</div>
+              <div class="stat-label">最高综合得分</div>
+            </div>
+            <div class="leaderboard-stat-item">
+              <div class="stat-num" id="lbLastSyncTime" style="font-size: 13px; margin-top: 6px;">--</div>
+              <div class="stat-label">最近更新同步</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filter & Actions Bar -->
+        <div class="leaderboard-filter-bar">
+          <div style="display: flex; gap: 10px; align-items: center; flex: 1; min-width: 320px;">
+            <input type="text" id="lbSearchInput" class="form-control" placeholder="🔍 搜索模型名称、架构或协议 (如 Qwen, DeepSeek, Llama, Gemma)..." oninput="onLeaderboardSearch()">
+            <select id="lbSortSelect" class="form-control" style="width: 185px;" onchange="loadLeaderboardData()">
+              <option value="average" selected>按综合得分 (Average ⬆️)</option>
+              <option value="math">按数学能力 (MATH Lvl 5)</option>
+              <option value="mmlu_pro">按代码/学科 (MMLU-PRO)</option>
+              <option value="bbh">按逻辑推理 (BBH)</option>
+              <option value="ifeval">按指令遵循 (IFEval)</option>
+              <option value="params">按参数规模 (#Params)</option>
+              <option value="likes">按 HuggingFace 点赞数</option>
+            </select>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-secondary btn-sm" onclick="downloadLeaderboardJson()">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+              <span>导出 JSON 数据</span>
+            </button>
+            <button class="btn btn-primary btn-sm" id="btnSyncLeaderboard" onclick="triggerLeaderboardSync()">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+              <span id="syncLeaderboardText">一键在线同步最新数据</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Leaderboard Table -->
+        <div class="leaderboard-table-container">
+          <table class="leaderboard-table">
+            <thead>
+              <tr>
+                <th style="width: 48px; text-align: center;">#</th>
+                <th style="min-width: 200px;">模型全称 (Model Fullname)</th>
+                <th style="width: 105px;">综合均分</th>
+                <th style="width: 85px;" title="Instruction Following Evaluation (指令遵循)">IFEval</th>
+                <th style="width: 85px;" title="Big-Bench Hard (高阶逻辑推理)">BBH</th>
+                <th style="width: 85px;" title="MATH Level 5 (竞赛级数理推导)">MATH L5</th>
+                <th style="width: 85px;" title="Google-Proof Q&A (高难度问答)">GPQA</th>
+                <th style="width: 85px;" title="Multistep Soft Reasoning (多步软推理)">MUSR</th>
+                <th style="width: 90px;" title="MMLU-PRO (高难度工程学科与代码综合)">MMLU-PRO</th>
+                <th style="width: 85px;">参数量</th>
+                <th style="width: 130px;">架构</th>
+                <th style="width: 130px; text-align: center;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="lbTableBody">
+              <!-- Dynamically populated rows -->
+            </tbody>
+          </table>
+          <div id="lbTableLoading" style="text-align: center; padding: 30px; color: var(--text-muted); display: none;">
+            正在加载权威评测数据...
+          </div>
+          <div id="lbTableEmpty" style="text-align: center; padding: 40px; color: var(--text-muted); display: none;">
+            未检索到匹配的大模型记录
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 
@@ -587,112 +673,269 @@
     </div>
   </div>
 
-  <!-- Modal for Adding/Editing a Model (Cascading Selection & Editing) -->
+  <!-- Modal for Adding/Editing a Model (3 Sub-Tabs Layout) -->
   <div class="modal-backdrop" id="modelModal" style="display: none;">
-    <div class="modal">
+    <div class="modal modal-lg">
       <div class="modal-header">
         <h3 id="modelModalTitle">添加路由候选模型</h3>
         <button class="modal-close" onclick="closeModal('modelModal')">&times;</button>
       </div>
+
+      <!-- Modal Sub-Tabs Navigation -->
+      <div class="modal-tabs-nav">
+        <button class="modal-tab-btn active" id="btnTabModelBasic" onclick="switchModelModalTab('basic')">
+          🏷️ 基础属性与端点
+        </button>
+        <button class="modal-tab-btn" id="btnTabModelPricing" onclick="switchModelModalTab('pricing')">
+          💰 计费单价与上下文
+        </button>
+        <button class="modal-tab-btn" id="btnTabModelCapabilities" onclick="switchModelModalTab('capabilities')">
+          🎯 能力评分与权威基准 (Leaderboard)
+        </button>
+      </div>
+
       <div class="modal-body">
         <input type="hidden" id="modelEditIndex" value="-1">
         
-        <div id="modelLockNotice" style="display: none; padding: 8px 12px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; font-size: 12px; color: #b45309; margin-bottom: 12px;">
+        <div id="modelLockNotice" style="display: none; padding: 8px 12px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; font-size: 12px; color: #b45309; margin-bottom: 10px;">
           🔒 <strong>供应商</strong>、<strong>上游模型 ID</strong> 与<strong>免费属性</strong>为路由固有绑定标识，编辑模式下已锁定只读。
         </div>
 
-        <div class="form-group">
-          <label>所属提供商 (Provider)</label>
-          <select id="modelProvSelect" class="form-control" onchange="onModelProviderChanged()">
-            <!-- Dynamically populated from config.providers -->
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label>上游模型标识 (Model ID)</label>
-          <select id="modelUpstreamSelect" class="form-control" onchange="onModelUpstreamChanged()">
-            <!-- Dynamically populated from provider's models -->
-          </select>
-          <div id="customModelInputBox" style="display: none; margin-top: 6px;">
-            <input type="text" id="modelCustomUpstreamInput" class="form-control" placeholder="输入自定义上游模型 ID (如 qwen2.5-coder)">
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>模型展示代号 (Name)</label>
-          <input type="text" id="modelNameInput" class="form-control" placeholder="用于 Router 路由标识，例如 qwen2.5-coder-7b">
-        </div>
-
-        <div class="form-group">
-          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-            <input type="checkbox" id="modelFreeCheckbox" onchange="onModelFreeToggled()">
-            <span>设为免费 / 零成本模型 (本地 LM Studio 勾选此项，调用成本记为 0)</span>
-          </label>
-        </div>
-
-        <div class="form-grid" id="pricingGrid">
+        <!-- SUB-TAB 1: Basic & Endpoint -->
+        <div class="modal-tab-panel active" id="tabModelBasic">
           <div class="form-group">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <label style="margin-bottom: 0;">输入单价 (¥/1M)</label>
-              <span class="usd-converted-tag" id="inputPriceUsdTag">折合 $0.0000 / 1M</span>
-            </div>
-            <input type="number" step="0.001" min="0" id="modelInputPrice" class="form-control" value="0" oninput="updatePricingUsdDisplay()">
-          </div>
-          <div class="form-group">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <label style="margin-bottom: 0;">输出单价 (¥/1M)</label>
-              <span class="usd-converted-tag" id="outputPriceUsdTag">折合 $0.0000 / 1M</span>
-            </div>
-            <input type="number" step="0.001" min="0" id="modelOutputPrice" class="form-control" value="0" oninput="updatePricingUsdDisplay()">
-          </div>
-          <div class="form-group">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <label style="margin-bottom: 0;">缓存读取单价 (¥/1M)</label>
-              <span class="usd-converted-tag" id="cachePriceUsdTag">折合 $0.0000 / 1M</span>
-            </div>
-            <input type="number" step="0.0001" min="0" id="modelCachePrice" class="form-control" value="0" oninput="updatePricingUsdDisplay()">
-          </div>
-          <div class="form-group">
-            <label>上下文窗口上限 (Tokens)</label>
-            <select id="modelContextSelect" class="form-control">
-              <option value="16384">16k (16,384)</option>
-              <option value="32768">32k (32,768)</option>
-              <option value="65536">64k (65,536)</option>
-              <option value="131072" selected>128k (131,072)</option>
-              <option value="262144">256k (262,144)</option>
-              <option value="1048576">1M (1,048,576)</option>
+            <label>所属提供商 (Provider)</label>
+            <select id="modelProvSelect" class="form-control" onchange="onModelProviderChanged()">
+              <!-- Dynamically populated from config.providers -->
             </select>
           </div>
-        </div>
 
-        <details class="capabilities-details" style="margin-top: 14px; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 14px; background: #fafafa;">
-          <summary style="font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-color); outline: none;">
-            ⚙️ 微调模型能力画像评分 (Capability Profile: 0.0 ~ 1.0)
-          </summary>
-          <p style="font-size: 12px; color: var(--text-muted); margin: 6px 0 10px 0;">设置模型在不同学科维度的能力表现预估值，Router 决策算法将结合难度评分智能匹配最经济模型。</p>
-          <div class="form-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px;">
-            <div class="form-group" style="margin-bottom: 0;">
-              <label style="font-size: 12px;">代码编程能力 (Coding)</label>
-              <input type="number" step="0.05" min="0" max="1" id="capCodingInput" class="form-control form-control-sm" value="0.85">
-            </div>
-            <div class="form-group" style="margin-bottom: 0;">
-              <label style="font-size: 12px;">数理推导能力 (Math)</label>
-              <input type="number" step="0.05" min="0" max="1" id="capMathInput" class="form-control form-control-sm" value="0.85">
-            </div>
-            <div class="form-group" style="margin-bottom: 0;">
-              <label style="font-size: 12px;">逻辑推理能力 (Reasoning)</label>
-              <input type="number" step="0.05" min="0" max="1" id="capReasoningInput" class="form-control form-control-sm" value="0.85">
-            </div>
-            <div class="form-group" style="margin-bottom: 0;">
-              <label style="font-size: 12px;">常识问答综合 (General)</label>
-              <input type="number" step="0.05" min="0" max="1" id="capGeneralInput" class="form-control form-control-sm" value="0.85">
+          <div class="form-group">
+            <label>上游模型标识 (Model ID)</label>
+            <select id="modelUpstreamSelect" class="form-control" onchange="onModelUpstreamChanged()">
+              <!-- Dynamically populated from provider's models -->
+            </select>
+            <div id="customModelInputBox" style="display: none; margin-top: 6px;">
+              <input type="text" id="modelCustomUpstreamInput" class="form-control" placeholder="输入自定义上游模型 ID (如 qwen2.5-coder)" oninput="onCustomUpstreamInputChanged()">
             </div>
           </div>
-        </details>
+
+          <div class="form-group">
+            <label>模型展示代号 (Name)</label>
+            <input type="text" id="modelNameInput" class="form-control" placeholder="用于 Router 路由标识，例如 qwen2.5-coder-7b">
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="modelFreeCheckbox" onchange="onModelFreeToggled()">
+              <span>设为免费 / 零成本模型 (本地 LM Studio 勾选此项，调用成本记为 0)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- SUB-TAB 2: Pricing & Limits -->
+        <div class="modal-tab-panel" id="tabModelPricing">
+          <div class="form-grid" id="pricingGrid">
+            <div class="form-group">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label style="margin-bottom: 0;">输入单价 (¥/1M)</label>
+                <span class="usd-converted-tag" id="inputPriceUsdTag">折合 $0.0000 / 1M</span>
+              </div>
+              <input type="number" step="0.001" min="0" id="modelInputPrice" class="form-control" value="0" oninput="updatePricingUsdDisplay()">
+            </div>
+            <div class="form-group">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label style="margin-bottom: 0;">输出单价 (¥/1M)</label>
+                <span class="usd-converted-tag" id="outputPriceUsdTag">折合 $0.0000 / 1M</span>
+              </div>
+              <input type="number" step="0.001" min="0" id="modelOutputPrice" class="form-control" value="0" oninput="updatePricingUsdDisplay()">
+            </div>
+            <div class="form-group">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label style="margin-bottom: 0;">缓存读取单价 (¥/1M)</label>
+                <span class="usd-converted-tag" id="cachePriceUsdTag">折合 $0.0000 / 1M</span>
+              </div>
+              <input type="number" step="0.0001" min="0" id="modelCachePrice" class="form-control" value="0" oninput="updatePricingUsdDisplay()">
+            </div>
+            <div class="form-group">
+              <label>上下文窗口上限 (Tokens)</label>
+              <select id="modelContextSelect" class="form-control">
+                <option value="16384">16k (16,384)</option>
+                <option value="32768">32k (32,768)</option>
+                <option value="65536">64k (65,536)</option>
+                <option value="131072" selected>128k (131,072)</option>
+                <option value="262144">256k (262,144)</option>
+                <option value="1048576">1M (1,048,576)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- SUB-TAB 3: Capabilities & Leaderboard Match -->
+        <div class="modal-tab-panel" id="tabModelCapabilities">
+          <!-- Live Matched Open LLM Leaderboard Card -->
+          <div class="hf-benchmark-card" id="modalHfBenchmarkCard">
+            <div class="hf-card-header">
+              <div>
+                <div class="hf-matched-title">
+                  <span>🏆 权威评测智能匹配:</span>
+                  <a id="hfMatchedModelLink" href="#" target="_blank" style="color: var(--primary); text-decoration: underline;">正在匹配...</a>
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                  基准源: Hugging Face Open LLM Leaderboard (contents)
+                </div>
+              </div>
+              <span class="hf-confidence-pill" id="hfConfidencePill">相似度 95%</span>
+            </div>
+
+            <div class="hf-kpi-grid">
+              <div class="hf-kpi-box">
+                <span class="label">综合均分 (Average)</span>
+                <span class="val" id="hfKpiAvg" style="color: #0284c7;">--</span>
+              </div>
+              <div class="hf-kpi-box">
+                <span class="label">参数规模 (#Params)</span>
+                <span class="val" id="hfKpiParams">-- B</span>
+              </div>
+              <div class="hf-kpi-box">
+                <span class="label">模型架构 (Arch)</span>
+                <span class="val" id="hfKpiArch" style="font-size: 12px; line-height: 22px;">--</span>
+              </div>
+            </div>
+
+            <div class="hf-metrics-bars">
+              <div class="hf-bar-item">
+                <div class="hf-bar-meta"><span>IFEval (指令遵循)</span><span class="bar-score" id="hfBarIfeval">--</span></div>
+                <div class="hf-progress-track"><div class="hf-progress-fill" id="hfFillIfeval" style="width: 0%;"></div></div>
+              </div>
+              <div class="hf-bar-item">
+                <div class="hf-bar-meta"><span>BBH (逻辑推理)</span><span class="bar-score" id="hfBarBbh">--</span></div>
+                <div class="hf-progress-track"><div class="hf-progress-fill" id="hfFillBbh" style="width: 0%;"></div></div>
+              </div>
+              <div class="hf-bar-item">
+                <div class="hf-bar-meta"><span>MATH Lvl 5 (高阶数理)</span><span class="bar-score" id="hfBarMath">--</span></div>
+                <div class="hf-progress-track"><div class="hf-progress-fill" id="hfFillMath" style="width: 0%;"></div></div>
+              </div>
+              <div class="hf-bar-item">
+                <div class="hf-bar-meta"><span>MMLU-PRO (学科代码)</span><span class="bar-score" id="hfBarMmluPro">--</span></div>
+                <div class="hf-progress-track"><div class="hf-progress-fill" id="hfFillMmluPro" style="width: 0%;"></div></div>
+              </div>
+              <div class="hf-bar-item">
+                <div class="hf-bar-meta"><span>GPQA (专家问答)</span><span class="bar-score" id="hfBarGpqa">--</span></div>
+                <div class="hf-progress-track"><div class="hf-progress-fill" id="hfFillGpqa" style="width: 0%;"></div></div>
+              </div>
+              <div class="hf-bar-item">
+                <div class="hf-bar-meta"><span>MUSR (多步软推理)</span><span class="bar-score" id="hfBarMusr">--</span></div>
+                <div class="hf-progress-track"><div class="hf-progress-fill" id="hfFillMusr" style="width: 0%;"></div></div>
+              </div>
+            </div>
+
+            <div class="hf-card-actions">
+              <div style="display: flex; gap: 8px; align-items: center; flex: 1;">
+                <select id="hfCandidatesSelect" class="form-control form-control-sm" style="max-width: 220px; font-size: 11.5px;" onchange="onSelectMatchedCandidate(this.value)">
+                  <!-- Top candidates populated dynamically -->
+                </select>
+                <button class="btn btn-secondary btn-sm" onclick="viewMatchedModelFullDetails()">
+                  <span>📑 查看完整评测明细</span>
+                </button>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="applyLeaderboardCapabilitiesToForm()" style="background: linear-gradient(135deg, #10b981, #059669); border-color: #059669;">
+                <span>⚡ 一键采纳评分换算套用</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Fine-grained capabilities inputs -->
+          <div style="background: #fafafa; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
+            <div style="font-size: 13px; font-weight: 600; color: var(--text-main); margin-bottom: 4px;">
+              ⚙️ 微调模型能力画像评分 (Capability Profile: 0.0 ~ 1.0)
+            </div>
+            <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
+              设置模型在不同维度的能力表现预估值，Router 决策算法将结合难度评分智能匹配最经济模型。
+            </p>
+            <div class="form-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label style="font-size: 12px;">代码编程能力 (Coding)</label>
+                <input type="number" step="0.05" min="0" max="1" id="capCodingInput" class="form-control form-control-sm" value="0.85">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label style="font-size: 12px;">数理推导能力 (Math)</label>
+                <input type="number" step="0.05" min="0" max="1" id="capMathInput" class="form-control form-control-sm" value="0.85">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label style="font-size: 12px;">逻辑推理能力 (Reasoning)</label>
+                <input type="number" step="0.05" min="0" max="1" id="capReasoningInput" class="form-control form-control-sm" value="0.85">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label style="font-size: 12px;">常识问答综合 (General)</label>
+                <input type="number" step="0.05" min="0" max="1" id="capGeneralInput" class="form-control form-control-sm" value="0.85">
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeModal('modelModal')">取消</button>
         <button class="btn btn-primary" id="saveModelBtn" onclick="saveModelFromModal()">保存模型到路由目录</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Full Leaderboard Model Details -->
+  <div class="modal-backdrop" id="leaderboardDetailModal" style="display: none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <div>
+          <h3 id="lbDetailModalTitle">大模型评测指标完整报告</h3>
+          <p id="lbDetailModalSubtitle" style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">--</p>
+        </div>
+        <button class="modal-close" onclick="closeModal('leaderboardDetailModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="kpi-row" style="margin-bottom: 14px;">
+          <div class="kpi-card" style="padding: 12px;">
+            <div class="kpi-title"><span>综合均分</span></div>
+            <div class="kpi-num" id="lbDetailAvg" style="font-size: 20px; color: #0284c7;">--</div>
+          </div>
+          <div class="kpi-card" style="padding: 12px;">
+            <div class="kpi-title"><span>参数量</span></div>
+            <div class="kpi-num" id="lbDetailParams" style="font-size: 20px;">-- B</div>
+          </div>
+          <div class="kpi-card" style="padding: 12px;">
+            <div class="kpi-title"><span>开源协议</span></div>
+            <div class="kpi-num" id="lbDetailLicense" style="font-size: 15px; font-weight: 600;">--</div>
+          </div>
+        </div>
+
+        <div class="section-card" style="padding: 12px; margin-bottom: 12px;">
+          <h4 style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">📊 核心能力指标明细与原始 Raw 跑分对比</h4>
+          <table class="data-table" style="font-size: 12.5px;">
+            <thead>
+              <tr>
+                <th>评测能力项</th>
+                <th>权威得分 (0~100)</th>
+                <th>原始 Raw 分数</th>
+                <th>换算 Laya 参考能力分 (0.0~1.0)</th>
+              </tr>
+            </thead>
+            <tbody id="lbDetailMetricsBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label>评测完整元数据 JSON (Full Metadata)</label>
+          <pre id="lbDetailJsonView" class="code-preview-box" style="max-height: 180px; overflow-y: auto;"></pre>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <a id="lbDetailHfLink" href="#" target="_blank" class="btn btn-secondary">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+          <span>在 Hugging Face 打开</span>
+        </a>
+        <button class="btn btn-primary" onclick="closeModal('leaderboardDetailModal')">关闭</button>
       </div>
     </div>
   </div>
