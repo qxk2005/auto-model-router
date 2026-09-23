@@ -305,46 +305,134 @@ function setQuickPrompt(text) {
   document.getElementById("testPromptInput").value = text;
 }
 
-// Single Test Route Run
+let lastDiagnosticData = null;
+
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// Single Test Route Run with Diagnostics & Trace Logs
 async function runSingleTest() {
   const prompt = document.getElementById("testPromptInput").value.trim();
   if (!prompt) {
     showToast("请输入测试提示词", "warning");
     return;
   }
+  const isEndToEnd = document.getElementById("chkEndToEndTest")?.checked || false;
+  const mode = isEndToEnd ? "end_to_end" : "predict_only";
+
   const btn = document.getElementById("btnTestRoute");
   btn.disabled = true;
-  btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> 正在决策...`;
+  btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> ${isEndToEnd ? '正在端到端生成...' : '正在极速决策...'}`;
 
   try {
-    const proxyRes = await fetch("/v1/chat/completions", {
+    const res = await fetch("/api/router/test-single", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 2,
+        prompt: prompt,
+        mode: mode,
+        max_tokens: 128,
       }),
     });
 
-    if (proxyRes.ok) {
-      const data = await proxyRes.json();
-      const chosen = data.model || "local-lm-studio";
-      const decRes = await fetch("/v1/router/decisions");
-      let dec = null;
-      if (decRes.ok) {
-        const decs = await decRes.json();
-        if (decs && decs.length > 0) dec = decs[decs.length - 1];
-      }
+    if (res.ok) {
+      const data = await res.json();
+      lastDiagnosticData = data;
 
       document.getElementById("singleTestResult").style.display = "block";
-      document.getElementById("resCategory").textContent = dec?.classification?.category || "coding";
-      document.getElementById("resDifficulty").textContent = dec?.classification?.difficulty?.toFixed(3) || "0.250";
-      document.getElementById("resStakes").textContent = dec?.classification?.stakes?.toFixed(3) || "0.200";
-      document.getElementById("resLatency").textContent = `${dec?.classification?.latency_ms || 52} ms`;
-      document.getElementById("resChosenModel").textContent = `${chosen} (${dec?.choice?.reason || '期望成本最小化'})`;
-      showToast("路由决策完成！", "success");
+
+      // 1. Core Metrics
+      document.getElementById("resCategory").textContent = data.classification?.category || "general";
+      document.getElementById("resDifficulty").textContent = data.classification?.difficulty !== undefined ? data.classification.difficulty.toFixed(3) : "0.500";
+      document.getElementById("resStakes").textContent = data.classification?.stakes !== undefined ? data.classification.stakes.toFixed(3) : "0.200";
+      document.getElementById("resTotalLatency").textContent = `${data.timing?.total_latency_ms || 0} ms`;
+      document.getElementById("resChosenModel").textContent = `${data.decision?.chosen_model || '--'} (提供商: ${data.decision?.provider || '--'} | ${data.decision?.reason || '期望成本最小化'})`;
+
+      // 2. Timing Breakdown
+      const timing = data.timing || {};
+      const tot = Math.max(timing.total_latency_ms || 1, 0.1);
+      const layaMs = timing.classifier_ms || 0;
+      const scoreMs = timing.route_scoring_ms || 0;
+      const upMs = timing.upstream_request_ms || 0;
+      const verMs = timing.verification_ms || 0;
+
+      document.getElementById("resModeBadge").textContent = isEndToEnd ? "模式: 🌐 端到端全链路" : "模式: ⚡ 纯路由预测 (亚秒级)";
+      document.getElementById("chipLayaMs").textContent = `${layaMs} ms`;
+      document.getElementById("chipScoringMs").textContent = `${scoreMs} ms`;
+
+      const upWrap = document.getElementById("chipUpstreamWrap");
+      const verWrap = document.getElementById("chipVerifyWrap");
+
+      if (isEndToEnd) {
+        upWrap.style.display = "inline-flex";
+        document.getElementById("chipUpstreamMs").textContent = `${upMs} ms`;
+        if (verMs > 0) {
+          verWrap.style.display = "inline-flex";
+          document.getElementById("chipVerifyMs").textContent = `${verMs} ms`;
+        } else {
+          verWrap.style.display = "none";
+        }
+      } else {
+        upWrap.style.display = "none";
+        verWrap.style.display = "none";
+      }
+
+      // Progress bar widths
+      document.getElementById("barLaya").style.width = `${Math.min(100, (layaMs / tot) * 100)}%`;
+      document.getElementById("barScoring").style.width = `${Math.min(100, (scoreMs / tot) * 100)}%`;
+      document.getElementById("barUpstream").style.width = `${Math.min(100, (upMs / tot) * 100)}%`;
+      document.getElementById("barVerify").style.width = `${Math.min(100, (verMs / tot) * 100)}%`;
+
+      // 3. Upstream Output Snippet (if end-to-end)
+      const snippetCard = document.getElementById("endToEndSnippetCard");
+      if (isEndToEnd && data.upstream_response) {
+        snippetCard.style.display = "block";
+        const up = data.upstream_response;
+        if (up.status === "ok") {
+          document.getElementById("resTokensUsage").textContent = `首字/生成耗时: ${up.latency_ms}ms | Tokens: prompt=${up.usage?.prompt_tokens || 0}, comp=${up.usage?.completion_tokens || 0}`;
+          document.getElementById("resReplySnippet").style.color = "var(--text-main)";
+          document.getElementById("resReplySnippet").textContent = up.full_reply || up.reply_snippet || "（生成完成，无返回文本）";
+        } else {
+          document.getElementById("resTokensUsage").textContent = `状态: 异常 (耗时: ${up.latency_ms}ms)`;
+          document.getElementById("resReplySnippet").style.color = "var(--danger)";
+          document.getElementById("resReplySnippet").textContent = `[上游调用异常] ${up.error || '连接失败'}`;
+        }
+      } else {
+        snippetCard.style.display = "none";
+      }
+
+      // 4. Execution Trace Console Logs
+      const consoleEl = document.getElementById("traceConsole");
+      consoleEl.innerHTML = "";
+      const logs = data.logs || [];
+      if (logs.length === 0) {
+        consoleEl.innerHTML = `<div style="color: #94a3b8;">暂无流水日志</div>`;
+      } else {
+        logs.forEach(item => {
+          const row = document.createElement("div");
+          row.className = "trace-line";
+          const tagClass = item.level === "ERROR" ? "error" : (item.level === "WARN" ? "warn" : "info");
+          row.innerHTML = `
+            <span class="trace-ts">[${item.timestamp}]</span>
+            <span class="trace-tag ${tagClass}">${item.level}</span>
+            <span class="trace-msg">${escapeHtml(item.message)}</span>
+          `;
+          consoleEl.appendChild(row);
+        });
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+      }
+
+      showToast(`路由决策完成 (总耗时: ${tot}ms)`, "success");
     } else {
-      showToast("测试请求响应失败", "danger");
+      const errData = await res.json().catch(() => ({}));
+      showToast(`测试请求响应失败: ${errData.detail || res.statusText}`, "danger");
     }
   } catch (err) {
     showToast(`测试出错: ${err.message}`, "danger");
@@ -352,6 +440,24 @@ async function runSingleTest() {
     btn.disabled = false;
     btn.innerHTML = `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg><span>立即预测路由决策</span>`;
   }
+}
+
+// Copy Diagnostic JSON
+function copyDiagnosticJson(event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  if (!lastDiagnosticData) {
+    showToast("当前暂无排障诊断数据", "warning");
+    return;
+  }
+  const jsonStr = JSON.stringify(lastDiagnosticData, null, 2);
+  navigator.clipboard.writeText(jsonStr).then(() => {
+    showToast("排障诊断 JSON 已成功复制到剪贴板！", "success");
+  }).catch(err => {
+    showToast(`复制失败: ${err.message}`, "danger");
+  });
 }
 
 // Benchmark Mode Selection
