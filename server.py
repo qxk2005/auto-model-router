@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import auto_router.server as ar_server
-from auto_router.config import for_http, load_config, save_config, expand_env_vars
+from auto_router.config import for_http, load_config, save_config, expand_env_vars, normalize_provider_url
 from auto_router.jev import LocalLayaClassifier
 from auto_router.router import Router
 from evaluator import BenchmarkEvaluator, BenchmarkSummary
@@ -288,7 +288,10 @@ class ProviderTestRequest(BaseModel):
 
 @app.post("/api/provider/test")
 async def test_provider_endpoint(req: ProviderTestRequest):
-    base_url = (expand_env_vars(req.base_url) or req.base_url).rstrip("/")
+    raw_base_url = expand_env_vars(req.base_url) or req.base_url or ""
+    if not raw_base_url:
+        return {"status": "error", "error": "缺少端点 Base URL"}
+    base_url = normalize_provider_url(raw_base_url)
     api_key = expand_env_vars(req.api_key) or req.api_key
     headers = {}
     if api_key:
@@ -296,48 +299,61 @@ async def test_provider_endpoint(req: ProviderTestRequest):
 
     t0 = time.perf_counter()
     async with httpx.AsyncClient(timeout=10.0) as client:
+        # Candidate URLs to try: normalized URL (with /v1 by default for OpenAI), and non-v1 alternative as fallback
+        urls_to_try = [base_url]
+        if base_url.endswith("/v1"):
+            urls_to_try.append(base_url[:-3].rstrip("/"))
+        elif not re.search(r"/v\d+$", base_url):
+            urls_to_try.append(f"{base_url}/v1")
+
         # First attempt: GET /models
-        try:
-            r = await client.get(f"{base_url}/models", headers=headers)
-            lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
-            if r.status_code == 200:
-                data = r.json()
-                models_list = [m.get("id") for m in data.get("data", []) if isinstance(m, dict)]
-                return {
-                    "status": "ok",
-                    "latency_ms": lat_ms,
-                    "available_models": models_list,
-                    "resolved_base_url": base_url,
-                    "message": f"连接成功！检测到 {len(models_list)} 个可用模型",
-                }
-        except Exception:
-            pass
+        for try_url in urls_to_try:
+            try:
+                r = await client.get(f"{try_url}/models", headers=headers)
+                lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+                if r.status_code == 200:
+                    data = r.json()
+                    models_list = [m.get("id") for m in data.get("data", []) if isinstance(m, dict)]
+                    return {
+                        "status": "ok",
+                        "latency_ms": lat_ms,
+                        "available_models": models_list,
+                        "resolved_base_url": try_url,
+                        "message": f"连接成功！检测到 {len(models_list)} 个可用模型",
+                    }
+            except Exception:
+                pass
 
         # Second attempt: simple chat completion probe
-        try:
-            probe_body = {
-                "model": req.model or "default",
-                "messages": [{"role": "user", "content": "hi"}],
-                "max_tokens": 5,
-            }
-            r = await client.post(f"{base_url}/chat/completions", json=probe_body, headers=headers)
-            lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
-            if r.status_code == 200:
-                return {
-                    "status": "ok",
-                    "latency_ms": lat_ms,
-                    "available_models": [req.model or "default"],
-                    "resolved_base_url": base_url,
-                    "message": "端点响应正常！",
+        for try_url in urls_to_try:
+            try:
+                probe_body = {
+                    "model": req.model or "default",
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 5,
                 }
-            return {
-                "status": "error",
-                "latency_ms": lat_ms,
-                "error": f"HTTP {r.status_code}: {r.text[:200]}",
-            }
-        except Exception as exc:
-            lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
-            return {"status": "error", "latency_ms": lat_ms, "error": str(exc)}
+                r = await client.post(f"{try_url}/chat/completions", json=probe_body, headers=headers)
+                lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+                if r.status_code == 200:
+                    return {
+                        "status": "ok",
+                        "latency_ms": lat_ms,
+                        "available_models": [req.model or "default"],
+                        "resolved_base_url": try_url,
+                        "message": "端点响应正常！",
+                    }
+                if r.status_code not in (404, 405):
+                    return {
+                        "status": "error",
+                        "latency_ms": lat_ms,
+                        "resolved_base_url": try_url,
+                        "error": f"HTTP {r.status_code}: {r.text[:200]}",
+                    }
+            except Exception:
+                pass
+
+        lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+        return {"status": "error", "latency_ms": lat_ms, "resolved_base_url": base_url, "error": f"无法连接提供商端点 ({base_url})"}
 
 
 class ProviderModelsRequest(BaseModel):
@@ -350,48 +366,66 @@ async def fetch_provider_models(req: ProviderModelsRequest):
     """Fetch complete list of available models from an OpenAI-compatible provider."""
     t0 = time.perf_counter()
     try:
-        base_url = (expand_env_vars(req.base_url) or req.base_url or "").rstrip("/")
-        api_key = expand_env_vars(req.api_key) or req.api_key
-        if not base_url:
+        raw_base_url = expand_env_vars(req.base_url) or req.base_url or ""
+        if not raw_base_url:
             return {"status": "error", "error": "缺少端点 Base URL"}
+        base_url = normalize_provider_url(raw_base_url)
+        api_key = expand_env_vars(req.api_key) or req.api_key
 
         headers = {}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
         async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
-                r = await client.get(f"{base_url}/models", headers=headers)
-                lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
-                if r.status_code == 200:
-                    data = r.json()
-                    raw_models = data.get("data", [])
-                    models = []
-                    for item in raw_models:
-                        if isinstance(item, dict) and "id" in item:
-                            models.append({
-                                "id": item["id"],
-                                "created": item.get("created"),
-                                "owned_by": item.get("owned_by", "system"),
-                            })
-                        elif isinstance(item, str):
-                            models.append({"id": item, "owned_by": "system"})
-                    return {
-                        "status": "ok",
-                        "latency_ms": lat_ms,
-                        "count": len(models),
-                        "models": models,
-                        "resolved_base_url": base_url,
-                        "message": f"成功获取到 {len(models)} 个可用模型",
-                    }
+            urls_to_try = [base_url]
+            if base_url.endswith("/v1"):
+                urls_to_try.append(base_url[:-3].rstrip("/"))
+            elif not re.search(r"/v\d+$", base_url):
+                urls_to_try.append(f"{base_url}/v1")
+
+            r = None
+            success_url = base_url
+            for try_url in urls_to_try:
+                try:
+                    res = await client.get(f"{try_url}/models", headers=headers)
+                    if res.status_code == 200:
+                        r = res
+                        success_url = try_url
+                        break
+                    elif r is None:
+                        r = res
+                except Exception:
+                    pass
+
+            lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+            if r is not None and r.status_code == 200:
+                data = r.json()
+                raw_models = data.get("data", [])
+                models = []
+                for item in raw_models:
+                    if isinstance(item, dict) and "id" in item:
+                        models.append({
+                            "id": item["id"],
+                            "created": item.get("created"),
+                            "owned_by": item.get("owned_by", "system"),
+                        })
+                    elif isinstance(item, str):
+                        models.append({"id": item, "owned_by": "system"})
                 return {
-                    "status": "error",
+                    "status": "ok",
                     "latency_ms": lat_ms,
-                    "error": f"上游接口返回 HTTP {r.status_code}: {r.text[:200]}",
+                    "count": len(models),
+                    "models": models,
+                    "resolved_base_url": success_url,
+                    "message": f"成功获取到 {len(models)} 个可用模型",
                 }
-            except Exception as exc:
-                lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
-                return {"status": "error", "latency_ms": lat_ms, "error": f"无法连接提供商端点 ({base_url}): {exc}"}
+            err_msg = f"上游接口返回 HTTP {r.status_code}: {r.text[:200]}" if r is not None else f"无法连接提供商端点 ({base_url})"
+            return {
+                "status": "error",
+                "latency_ms": lat_ms,
+                "resolved_base_url": base_url,
+                "error": err_msg,
+            }
     except Exception as exc:
         log.error("遍历端点可用模型失败: %s", exc, exc_info=True)
         return {"status": "error", "error": f"获取模型异常: {str(exc)}"}
@@ -410,6 +444,7 @@ async def probe_model_capability(req: ModelProbeRequest):
     """Live probe model availability, time-to-first-token latency, and output capability."""
     base_url = req.base_url
     api_key = req.api_key
+    prov_api = "openai"
 
     if not base_url and req.provider_id:
         cfg = get_current_raw_config()
@@ -417,6 +452,7 @@ async def probe_model_capability(req: ModelProbeRequest):
         if prov_info:
             base_url = prov_info.get("base_url")
             api_key = prov_info.get("api_key")
+            prov_api = prov_info.get("api", "openai")
 
     base_url = expand_env_vars(base_url) or base_url
     api_key = expand_env_vars(api_key) or api_key
@@ -424,7 +460,7 @@ async def probe_model_capability(req: ModelProbeRequest):
     if not base_url:
         raise HTTPException(status_code=400, detail="缺少上游端点 base_url 或有效的 provider_id")
 
-    base_url = base_url.rstrip("/")
+    base_url = normalize_provider_url(base_url, api=prov_api)
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -455,6 +491,23 @@ async def probe_model_capability(req: ModelProbeRequest):
                 "temperature": 0.5,
             }
             r = await client.post(f"{base_url}/chat/completions", json=body, headers=headers)
+
+            # If 404 or 405, fallback to alternate URL (e.g. without /v1 or with /v1)
+            if r.status_code in (404, 405):
+                alt_base = ""
+                if base_url.endswith("/v1"):
+                    alt_base = base_url[:-3].rstrip("/")
+                elif not re.search(r"/v\d+$", base_url):
+                    alt_base = f"{base_url}/v1"
+                if alt_base:
+                    try:
+                        r_alt = await client.post(f"{alt_base}/chat/completions", json=body, headers=headers)
+                        if r_alt.status_code == 200:
+                            r = r_alt
+                            base_url = alt_base
+                    except Exception:
+                        pass
+
             lat_ms = round((time.perf_counter() - t0) * 1000.0, 1)
 
             if r.status_code == 200:
@@ -470,6 +523,7 @@ async def probe_model_capability(req: ModelProbeRequest):
                     "status": "ok",
                     "latency_ms": lat_ms,
                     "model": req.upstream_id,
+                    "resolved_base_url": base_url,
                     "reply_snippet": reply[:400],
                     "usage": usage,
                     "message": "模型可用且响应正常！",
@@ -478,6 +532,7 @@ async def probe_model_capability(req: ModelProbeRequest):
                 "status": "error",
                 "latency_ms": lat_ms,
                 "model": req.upstream_id,
+                "resolved_base_url": base_url,
                 "error": f"HTTP {r.status_code}: {r.text[:300]}",
             }
         except Exception as exc:
@@ -486,6 +541,7 @@ async def probe_model_capability(req: ModelProbeRequest):
                 "status": "error",
                 "latency_ms": lat_ms,
                 "model": req.upstream_id,
+                "resolved_base_url": base_url,
                 "error": f"调用失败: {exc}",
             }
 
@@ -646,7 +702,7 @@ async def test_single_prompt(req: SingleTestRequest):
                     yield f"data: {json.dumps({'type': 'attempt_error', 'item': err_item, 'next_model': next_m, 'log': err_l}, ensure_ascii=False)}\n\n"
                     continue
 
-                base_url = (cur_provider.resolved_base_url or cur_provider.base_url).rstrip("/")
+                base_url = normalize_provider_url(cur_provider.resolved_base_url or cur_provider.base_url, api=getattr(cur_provider, "api", "openai"))
                 headers = {"Content-Type": "application/json"}
                 api_key = cur_provider.api_key
                 if api_key and api_key != "none":
@@ -994,7 +1050,7 @@ async def test_single_prompt(req: SingleTestRequest):
                 })
                 continue
 
-            base_url = (cur_provider.resolved_base_url or cur_provider.base_url).rstrip("/")
+            base_url = normalize_provider_url(cur_provider.resolved_base_url or cur_provider.base_url, api=getattr(cur_provider, "api", "openai"))
             headers = {"Content-Type": "application/json"}
             api_key = cur_provider.api_key
             if api_key and api_key != "none":

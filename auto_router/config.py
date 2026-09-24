@@ -76,6 +76,33 @@ def expand_env_vars(text: str | None) -> str | None:
     return expanded
 
 
+def normalize_provider_url(url: str | None, api: str = "openai") -> str:
+    """Normalize provider base URL, expanding env vars and auto-completing /v1 for OpenAI/Anthropic endpoints."""
+    if not url or not isinstance(url, str):
+        return ""
+    expanded = expand_env_vars(url) or url
+    u = expanded.strip().rstrip("/")
+    if not u:
+        return ""
+
+    # Strip trailing endpoint path if user pasted a full endpoint
+    for suffix in ("/chat/completions", "/models", "/messages", "/embeddings"):
+        if u.endswith(suffix):
+            u = u[:-len(suffix)].rstrip("/")
+            break
+
+    # If it is OpenAI-compatible (default) or Anthropic, auto-complete /v1 if missing version specifier
+    # e.g., http://8.148.249.98:88 -> http://8.148.249.98:88/v1
+    # http://localhost:1234 -> http://localhost:1234/v1
+    # https://api.openai.com -> https://api.openai.com/v1
+    # But preserve if already has /v1, /v2, etc.
+    if api in ("openai", "anthropic"):
+        if not re.search(r"/v\d+$", u, re.IGNORECASE):
+            u = f"{u}/v1"
+
+    return u
+
+
 @dataclass
 class Provider:
     name: str
@@ -90,7 +117,7 @@ class Provider:
     @property
     def resolved_base_url(self) -> str:
         url = expand_env_vars(self.base_url) or self.base_url
-        return url.rstrip("/")
+        return normalize_provider_url(url, api=self.api)
 
     @property
     def api_key(self) -> str | None:
