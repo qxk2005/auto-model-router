@@ -1087,9 +1087,16 @@ async function startBenchmark() {
 
   btn.style.display = "none";
   spinner.style.display = "flex";
-  progressText.textContent = currentBenchmarkMode === "real" 
-    ? "正在向实际端点 (LM Studio / API) 逐项发送测试请求..." 
+  let elapsedSec = 0;
+  const baseTip = currentBenchmarkMode === "real" 
+    ? "正在向实际端点发送真实请求并执行多阶段质检裁决..." 
     : "正在通过 Laya 模型在本地加速硬件上执行极速模拟测试...";
+  progressText.textContent = `${baseTip} (已运行 0s)`;
+
+  const timer = setInterval(() => {
+    elapsedSec += 1;
+    progressText.textContent = `${baseTip} (已运行 ${elapsedSec}s)`;
+  }, 1000);
 
   try {
     const res = await fetch("/api/benchmark/run", {
@@ -1132,8 +1139,12 @@ async function startBenchmark() {
       showToast(`测试失败: ${errMsg}`, "danger");
     }
   } catch (err) {
-    showToast(`测试执行异常: ${err.message}`, "danger");
+    const detail = (err.message === "Failed to fetch") 
+      ? "与服务器的网络连接断开或超时，请检查后台服务状态" 
+      : err.message;
+    showToast(`测试执行异常: ${detail}`, "danger");
   } finally {
+    clearInterval(timer);
     btn.style.display = "inline-flex";
     spinner.style.display = "none";
   }

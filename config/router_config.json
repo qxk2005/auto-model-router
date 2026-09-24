@@ -13,6 +13,13 @@
       "api_key": "sk-13778b8767fa81a1098db0e26b7ee9ec67fb1e1b0db4a3a64c72ea073afe6c6b",
       "cache": "openai",
       "api": "openai"
+    },
+    "本地 antigravity-gemini-3.6-flash": {
+      "name": "本地 antigravity-gemini-3.6-flash",
+      "base_url": "https://antigravitycli.niuzhidao.cc/",
+      "api_key": "quotio-local-5C8F580C-CA43-4337-B62F-6BC7ADD9AD7D",
+      "cache": "openai",
+      "api": "openai"
     }
   },
   "models": [
@@ -94,6 +101,32 @@
       "vision": false,
       "timeout_seconds": 180,
       "enabled": false
+    },
+    {
+      "name": "gemini-3-8-flash-high",
+      "provider": "本地 antigravity-gemini-3.6-flash",
+      "upstream_id": "gemini-3.8-flash-high",
+      "free": false,
+      "prices": {
+        "input": 35,
+        "output": 105,
+        "cache_read": 35,
+        "cache_write": 70
+      },
+      "capability": {
+        "coding": 90,
+        "math": 88,
+        "general": 92,
+        "knowledge": 80,
+        "summarisation": 80,
+        "agentic": 73,
+        "tool_use": 90,
+        "reasoning": 85
+      },
+      "context_tokens": 128000,
+      "tools": true,
+      "vision": true,
+      "enabled": true
     }
   ],
   "policy": {

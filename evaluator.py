@@ -750,67 +750,6 @@ class BenchmarkEvaluator:
                 prompt_tokens = int(item.get("estimated_prompt_tokens", len(prompt) // 2 or 30))
                 output_tokens = int(item.get("estimated_output_tokens", 100))
 
-                # 1. 运行标准路由决策流程（在线程池中运行 Laya 推断）
-                try:
-                    route_res = await loop.run_in_executor(
-                        None,
-                        lambda: self.router.route(
-                            messages=[{"role": "user", "content": prompt}],
-                            max_tokens=output_tokens
-                        )
-                    )
-                    chosen_model = route_res.model
-                    chosen_name = chosen_model.name
-                    reason = route_res.reason
-                    clf = route_res.classification
-                    lat_ms = route_res.classification_ms or (clf.latency_s * 1000.0 if clf else 30.0)
-                except Exception as e:
-                    chosen_model = cheap_model
-                    chosen_name = cheap_model.name if cheap_model else "fallback"
-                    reason = f"route error: {e}"
-                    clf = None
-                    lat_ms = 30.0
-
-                total_classifier_latency += lat_ms
-
-                raw_stages: list[dict] = []
-                dev_str = getattr(self.router.classifier, "actual_device", "mps").upper() if hasattr(self.router, "classifier") else "MPS"
-                raw_stages.append({
-                    "stage_index": 1,
-                    "stage_type": "classifier",
-                    "name": f"Laya 决策引擎 ({dev_str})",
-                    "provider": "local_engine",
-                    "status": "success",
-                    "start_ms": 0.0,
-                    "duration_ms": round(lat_ms, 2),
-                    "tokens": {"prompt": prompt_tokens, "completion": 0, "total": prompt_tokens},
-                    "cost_usd": 0.0,
-                    "detail": f"类别: {clf.category if clf else cat_expected} | 难度: {clf.difficulty if clf else 0.5:.2f} | 风险代价: {clf.stakes if clf else 0.2:.2f}",
-                    "snippet": f"策略仲裁首选: [{chosen_name}] ({reason})",
-                })
-
-                # 2. 向选中模型发起首次真实调用
-                provider_id = getattr(chosen_model, "provider", None) if chosen_model else None
-                provider = None
-                if provider_id and hasattr(self.router, "config") and hasattr(self.router.config, "providers"):
-                    provider = self.router.config.providers.get(provider_id)
-
-                real_response_text = ""
-                real_p_tokens = prompt_tokens
-                real_o_tokens = output_tokens
-                real_dur = 0.0
-                err_msg = ""
-                hop_count = 1
-                is_case_escalated = False
-                cur_start_ms = lat_ms
-
-                case_verified = False
-                case_verify_score = None
-                case_verify_status = "disabled"
-                case_verify_failure_reason = ""
-                case_verify_judge = ""
-                case_verify_lat_ms = 0.0
-
                 async def call_model_api(target_m, target_p, max_tok):
                     if not target_p or not target_p.base_url:
                         return False, 0.0, "", 0, 0, f"未配置提供商或端点 (provider: {getattr(target_m, 'provider', 'none')})"
@@ -833,9 +772,10 @@ class BenchmarkEvaluator:
                         or (self.config_raw.get("policy", {}) or {}).get("request_timeout_seconds")
                         or 60.0
                     )
+                    effective_timeout = min(to_s, 25.0)
                     t0 = time.perf_counter()
                     try:
-                        resp = await client.post(endpoint, json=pld, headers=hdrs, timeout=to_s)
+                        resp = await client.post(endpoint, json=pld, headers=hdrs, timeout=effective_timeout)
                         dur = time.perf_counter() - t0
                         if resp.status_code == 200:
                             d = resp.json()
@@ -849,12 +789,73 @@ class BenchmarkEvaluator:
                             return False, dur, "", 0, 0, f"HTTP {resp.status_code}: {resp.text[:160]}"
                     except httpx.TimeoutException:
                         dur = time.perf_counter() - t0
-                        return False, dur, "", 0, 0, f"调用超时 ({to_s:.0f}s)"
+                        return False, dur, "", 0, 0, f"调用超时 ({effective_timeout:.0f}s)"
                     except Exception as e:
                         dur = time.perf_counter() - t0
                         return False, dur, "", 0, 0, f"网络异常: {e}"
 
                 async with sem:
+                    # 1. 运行标准路由决策流程（在线程池中运行 Laya 推断）
+                    try:
+                        route_res = await loop.run_in_executor(
+                            None,
+                            lambda: self.router.route(
+                                messages=[{"role": "user", "content": prompt}],
+                                max_tokens=output_tokens
+                            )
+                        )
+                        chosen_model = route_res.model
+                        chosen_name = chosen_model.name
+                        reason = route_res.reason
+                        clf = route_res.classification
+                        lat_ms = route_res.classification_ms or (clf.latency_s * 1000.0 if clf else 30.0)
+                    except Exception as e:
+                        chosen_model = cheap_model
+                        chosen_name = cheap_model.name if cheap_model else "fallback"
+                        reason = f"route error: {e}"
+                        clf = None
+                        lat_ms = 30.0
+
+                    total_classifier_latency += lat_ms
+
+                    raw_stages: list[dict] = []
+                    dev_str = getattr(self.router.classifier, "actual_device", "mps").upper() if hasattr(self.router, "classifier") else "MPS"
+                    raw_stages.append({
+                        "stage_index": 1,
+                        "stage_type": "classifier",
+                        "name": f"Laya 决策引擎 ({dev_str})",
+                        "provider": "local_engine",
+                        "status": "success",
+                        "start_ms": 0.0,
+                        "duration_ms": round(lat_ms, 2),
+                        "tokens": {"prompt": prompt_tokens, "completion": 0, "total": prompt_tokens},
+                        "cost_usd": 0.0,
+                        "detail": f"类别: {clf.category if clf else cat_expected} | 难度: {clf.difficulty if clf else 0.5:.2f} | 风险代价: {clf.stakes if clf else 0.2:.2f}",
+                        "snippet": f"策略仲裁首选: [{chosen_name}] ({reason})",
+                    })
+
+                    # 2. 向选中模型发起首次真实调用
+                    provider_id = getattr(chosen_model, "provider", None) if chosen_model else None
+                    provider = None
+                    if provider_id and hasattr(self.router, "config") and hasattr(self.router.config, "providers"):
+                        provider = self.router.config.providers.get(provider_id)
+
+                    real_response_text = ""
+                    real_p_tokens = prompt_tokens
+                    real_o_tokens = output_tokens
+                    real_dur = 0.0
+                    err_msg = ""
+                    hop_count = 1
+                    is_case_escalated = False
+                    cur_start_ms = lat_ms
+
+                    case_verified = False
+                    case_verify_score = None
+                    case_verify_status = "disabled"
+                    case_verify_failure_reason = ""
+                    case_verify_judge = ""
+                    case_verify_lat_ms = 0.0
+
                     # 尝试首选模型
                     succ, dur_s, ans_txt, pt, ct, err = await call_model_api(chosen_model, provider, output_tokens)
                     real_dur += dur_s
