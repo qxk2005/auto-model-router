@@ -2195,10 +2195,13 @@ function renderArenaCardMetrics(model) {
   if (nGenEl) nGenEl.textContent = caps.general.toFixed(2);
 }
 
+let arenaDropdownModelMap = new Map();
+
 function populateArenaManualSelect(selectedModel, candidates = []) {
   const sel = document.getElementById("arenaManualSelect");
   if (!sel) return;
   sel.innerHTML = "";
+  arenaDropdownModelMap.clear();
 
   const candidateIds = new Set();
 
@@ -2209,6 +2212,7 @@ function populateArenaManualSelect(selectedModel, candidates = []) {
 
     candidates.forEach((c, idx) => {
       candidateIds.add(c.model_name);
+      arenaDropdownModelMap.set(c.model_name, c);
       const opt = document.createElement("option");
       opt.value = c.model_name;
       const isTop = (idx === 0);
@@ -2228,6 +2232,7 @@ function populateArenaManualSelect(selectedModel, candidates = []) {
 
     cachedLeaderboardList.forEach(m => {
       if (!candidateIds.has(m.model_name)) {
+        arenaDropdownModelMap.set(m.model_name, m);
         const opt = document.createElement("option");
         opt.value = m.model_name;
         opt.textContent = `${m.display_name || m.model_name} (Elo ${Math.round(m.rating_overall || 1200)})`;
@@ -2241,6 +2246,7 @@ function populateArenaManualSelect(selectedModel, candidates = []) {
   }
 
   if (selectedModel) {
+    arenaDropdownModelMap.set(selectedModel.model_name, selectedModel);
     sel.value = selectedModel.model_name;
   }
 }
@@ -2269,6 +2275,10 @@ function applyArenaScoresToInputs(showSuccessToast = true) {
 
   [codingEl, mathEl, reaEl, genEl].forEach(el => {
     if (el) {
+      try {
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      } catch (e) {}
       el.classList.remove("arena-synced-highlight");
       void el.offsetWidth;
       el.classList.add("arena-synced-highlight");
@@ -2286,9 +2296,10 @@ function onArenaManualSelectChanged() {
   if (!sel) return;
   const targetName = sel.value;
 
-  let target = (currentArenaMatchData && currentArenaMatchData.candidates)
-    ? currentArenaMatchData.candidates.find(m => m.model_name === targetName)
-    : null;
+  let target = arenaDropdownModelMap.get(targetName);
+  if (!target && currentArenaMatchData && currentArenaMatchData.candidates) {
+    target = currentArenaMatchData.candidates.find(m => m.model_name === targetName);
+  }
   if (!target && cachedLeaderboardList && cachedLeaderboardList.length > 0) {
     target = cachedLeaderboardList.find(m => m.model_name === targetName);
   }

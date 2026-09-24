@@ -2001,13 +2001,28 @@ async def apply_all_candidates_leaderboard():
 async def serve_index():
     index_path = WEB_DIR / "index.html"
     if index_path.exists():
-        return HTMLResponse(index_path.read_text(encoding="utf-8"))
+        content = index_path.read_text(encoding="utf-8")
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+        return HTMLResponse(content, headers=headers)
     return HTMLResponse("<h1>Auto-LLM-Router is running. WebUI index.html not found.</h1>")
+
+
+class NoCacheStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
 
 
 # Mount static assets if web dir has assets
 if WEB_DIR.exists():
-    app.mount("/web", StaticFiles(directory=str(WEB_DIR)), name="web")
+    app.mount("/web", NoCacheStaticFiles(directory=str(WEB_DIR)), name="web")
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
