@@ -589,14 +589,17 @@ body {
   flex-direction: column;
   gap: 12px;
   box-shadow: var(--card-shadow);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease, box-shadow 0.2s ease;
   box-sizing: border-box;
   min-width: 0;
 }
 
 .provider-card:hover {
-  border-color: var(--card-hover);
-  box-shadow: var(--card-shadow-hover);
+  transform: translateY(-2px);
+  border-color: rgba(59, 130, 246, 0.45);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
 }
 
 .prov-head {
@@ -609,6 +612,9 @@ body {
   font-size: 16px;
   font-weight: 700;
   color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .prov-url {
@@ -622,6 +628,7 @@ body {
   display: flex;
   gap: 8px;
   margin-top: auto;
+  flex-wrap: wrap;
 }
 
 /* Tables */

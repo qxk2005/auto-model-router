@@ -33,6 +33,8 @@ document.addEventListener("DOMContentLoaded", () => {
       lblStream.style.opacity = chkEndToEnd.checked ? "1" : "0.5";
       lblStream.style.pointerEvents = chkEndToEnd.checked ? "auto" : "none";
     });
+  }
+
   const initialTab = (location.hash || "").replace("#", "").trim();
   if (initialTab && ["monitor", "models", "policy", "benchmark", "leaderboard"].includes(initialTab)) {
     switchTab(initialTab);
@@ -180,6 +182,8 @@ function renderProviders() {
   for (const [id, p] of Object.entries(currentConfig.providers)) {
     const card = document.createElement("div");
     card.className = "provider-card";
+    card.setAttribute("title", `点击卡片快速修改 [${id}] 端点地址与密钥`);
+    card.onclick = () => openEditProviderModal(id);
     const isLocal = p.base_url.includes("localhost") || p.base_url.includes("127.0.0.1");
 
     // Count assigned models for this provider
@@ -187,17 +191,21 @@ function renderProviders() {
 
     card.innerHTML = `
       <div class="prov-head">
-        <span class="prov-name">${id}</span>
+        <span class="prov-name">
+          ${id}
+          <span style="font-size: 11.5px; color: var(--text-muted); font-weight: normal; opacity: 0.75;" title="点击可编辑">✏️</span>
+        </span>
         <span class="badge ${isLocal ? 'badge-green' : 'badge-blue'}">${isLocal ? '本地 LM Studio' : '云端 API'}</span>
       </div>
       <div class="prov-url">${p.base_url}</div>
       <div style="font-size: 12px; color: var(--text-dim); margin-top: 2px;">
         已配置 <strong>${assignedCount}</strong> 个路由模型
       </div>
-      <div class="prov-actions" style="margin-top: 10px;">
-        <button class="btn btn-secondary btn-sm" onclick="testProvider('${id}', '${p.base_url}', '${p.api_key || ''}')">⚡ 测试端点</button>
-        <button class="btn btn-primary btn-sm" onclick="openQuickSyncModal('${id}')">🔍 获取/选择模型</button>
-        <button class="btn btn-secondary btn-sm" style="color:var(--danger);" onclick="deleteProvider('${id}')">删除</button>
+      <div class="prov-actions" style="margin-top: 10px;" onclick="event.stopPropagation()">
+        <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openEditProviderModal('${id}')">✏️ 编辑</button>
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); testProvider('${id}', '${p.base_url}', '${p.api_key || ''}')">⚡ 测试端点</button>
+        <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); openQuickSyncModal('${id}')">🔍 获取/选择模型</button>
+        <button class="btn btn-secondary btn-sm" style="color:var(--danger);" onclick="event.stopPropagation(); deleteProvider('${id}')">删除</button>
       </div>
     `;
     container.appendChild(card);
@@ -1230,13 +1238,77 @@ async function batchDeleteSelectedReports() {
 // ---------------------------------------------------------------------------
 // Provider Modal with Auto Model Fetching & Multi-selection
 // ---------------------------------------------------------------------------
+let currentEditingProviderId = null;
+
 function openAddProviderModal() {
+  currentEditingProviderId = null;
   document.getElementById("providerModalTitle").textContent = "添加模型提供商 (Provider)";
-  document.getElementById("provIdInput").value = "";
-  document.getElementById("provUrlInput").value = "http://localhost:1234/v1";
-  document.getElementById("provKeyInput").value = "";
-  document.getElementById("provModelsContainer").style.display = "none";
+
+  const idInput = document.getElementById("provIdInput");
+  idInput.value = "";
+  idInput.disabled = false;
+  idInput.style.backgroundColor = "";
+  idInput.style.color = "";
+  idInput.style.cursor = "";
+
+  const notice = document.getElementById("provIdNotice");
+  if (notice) notice.style.display = "none";
+
+  const urlInput = document.getElementById("provUrlInput");
+  urlInput.value = "http://localhost:1234/v1";
+
+  const keyInput = document.getElementById("provKeyInput");
+  keyInput.value = "";
+  keyInput.placeholder = "本地 LM Studio 随意填写即可；云端厂商需真实 Key";
+
+  const fetchBox = document.getElementById("provAutoFetchBox");
+  if (fetchBox) fetchBox.style.display = "block";
+
+  const modelsCont = document.getElementById("provModelsContainer");
+  if (modelsCont) modelsCont.style.display = "none";
+
+  const saveBtn = document.getElementById("btnSaveProviderModal");
+  if (saveBtn) saveBtn.textContent = "保存提供商并批量导入已选模型";
+
   currentModalModels = [];
+  document.getElementById("providerModal").style.display = "flex";
+}
+
+function openEditProviderModal(id) {
+  const p = currentConfig?.providers?.[id];
+  if (!p) {
+    showToast(`未找到提供商 [${id}] 数据`, "warning");
+    return;
+  }
+  currentEditingProviderId = id;
+  document.getElementById("providerModalTitle").textContent = `✏️ 编辑模型提供商：[${id}]`;
+
+  const idInput = document.getElementById("provIdInput");
+  idInput.value = id;
+  idInput.disabled = true;
+  idInput.style.backgroundColor = "var(--bg-subtle, #f1f5f9)";
+  idInput.style.color = "var(--text-muted, #64748b)";
+  idInput.style.cursor = "not-allowed";
+
+  const notice = document.getElementById("provIdNotice");
+  if (notice) notice.style.display = "inline";
+
+  const urlInput = document.getElementById("provUrlInput");
+  urlInput.value = p.base_url || "";
+
+  const keyInput = document.getElementById("provKeyInput");
+  keyInput.value = p.api_key || "";
+  keyInput.placeholder = "留空或保持星号则沿用已有密钥，也可填入新 Key 或环境变量";
+
+  // 编辑模式：隐藏下方批量选模型模块，保持专注简洁
+  const fetchBox = document.getElementById("provAutoFetchBox");
+  if (fetchBox) fetchBox.style.display = "none";
+  const modelsCont = document.getElementById("provModelsContainer");
+  if (modelsCont) modelsCont.style.display = "none";
+
+  const saveBtn = document.getElementById("btnSaveProviderModal");
+  if (saveBtn) saveBtn.textContent = "保存提供商修改";
+
   document.getElementById("providerModal").style.display = "flex";
 }
 
@@ -1374,12 +1446,39 @@ async function testModalProvider() {
 }
 
 function saveProviderFromModal() {
-  const id = document.getElementById("provIdInput").value.trim();
   const url = document.getElementById("provUrlInput").value.trim();
   const key = document.getElementById("provKeyInput").value.trim();
 
-  if (!id || !url) {
-    showToast("请填写提供商 ID 和 URL", "warning");
+  if (!url) {
+    showToast("请填写 Base URL 端点地址", "warning");
+    return;
+  }
+
+  // 1. 编辑模式：直接保存修改后的 Base URL 与 API Key，无需批量导入模型
+  if (currentEditingProviderId) {
+    const id = currentEditingProviderId;
+    if (!currentConfig.providers || !currentConfig.providers[id]) {
+      showToast("未找到原提供商配置记录", "danger");
+      return;
+    }
+    const prov = currentConfig.providers[id];
+    prov.base_url = url;
+    // 若用户输入了新 key，且不含 ***，则更新 api_key；若包含 *** 则沿用原真实密钥
+    if (key && !key.includes("***")) {
+      prov.api_key = key;
+    }
+
+    savePolicyConfig();
+    renderProviders();
+    closeModal("providerModal");
+    showToast(`提供商 [${id}] 配置修改已保存并实时生效！`, "success");
+    return;
+  }
+
+  // 2. 新增模式：保存新提供商并批量导入勾选的模型
+  const id = document.getElementById("provIdInput").value.trim();
+  if (!id) {
+    showToast("请填写提供商 ID", "warning");
     return;
   }
 
