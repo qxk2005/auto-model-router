@@ -93,7 +93,7 @@
     }
   ],
   "policy": {
-    "name": "B_naive",
+    "name": "F_expected",
     "request_timeout_seconds": 60,
     "currency": {
       "base": "CNY",
@@ -120,7 +120,7 @@
     ],
     "verify": {
       "enabled": true,
-      "judge_model": "deepseek-v4-flash",
+      "judge_model": "laya",
       "max_price_per_mtok": 2.5,
       "max_capability": 77.5,
       "thresholds": {
