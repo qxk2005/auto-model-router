@@ -701,7 +701,7 @@ class Router:
             stakes_usd=STAKES_USD[stakes_idx],
             detect_prob=0.8 if agentic else 0.5,
             difficulty_confidence=cls.difficulty_confidence,
-            needs_long_context=cls.needs_long_context > 0.5,
+            needs_long_context=(cls.needs_long_context > 0.75) and (request_chars > 6000 or prompt_tokens > 2500),
             request_chars=request_chars,
         )
 

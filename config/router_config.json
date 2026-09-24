@@ -9,8 +9,8 @@
     },
     "具生涌动": {
       "name": "具生涌动",
-      "base_url": "${JUSHENG_BASE_URL}",
-      "api_key": "${JUSHENG_API_KEY}",
+      "base_url": "http://8.148.249.98:88/",
+      "api_key": "sk-13778b8767fa81a1098db0e26b7ee9ec67fb1e1b0db4a3a64c72ea073afe6c6b",
       "cache": "openai",
       "api": "openai"
     }

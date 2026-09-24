@@ -976,40 +976,38 @@ class BenchmarkEvaluator:
                                         "snippet": v_reason,
                                     })
                                     cur_start_ms += chk_dur_ms
+
+                                    # 若建议升级，且有更强的高阶模型，触发升级重新转发
+                                    if should_escalate and expensive_model and expensive_model.name != chosen_name:
+                                        esc_prov = self.router.config.providers.get(expensive_model.provider) if hasattr(self.router.config, "providers") else None
+                                        e_succ, e_dur, e_txt, e_pt, e_ct, e_err = await call_model_api(expensive_model, esc_prov, output_tokens)
+                                        real_dur += e_dur
+                                        esc_dur_ms = round(e_dur * 1000.0, 2)
+                                        if e_succ:
+                                            real_response_text = e_txt
+                                            real_p_tokens = e_pt
+                                            real_o_tokens = e_ct
+                                            chosen_model = expensive_model
+                                            chosen_name = expensive_model.name
+                                            is_case_escalated = True
+                                            hop_count = 2
+                                            raw_stages.append({
+                                                "stage_index": 4,
+                                                "stage_type": "escalate_model",
+                                                "name": expensive_model.name,
+                                                "provider": getattr(expensive_model, "provider", "none"),
+                                                "status": "success",
+                                                "start_ms": round(cur_start_ms, 2),
+                                                "duration_ms": esc_dur_ms,
+                                                "tokens": {"prompt": e_pt, "completion": e_ct, "total": e_pt + e_ct},
+                                                "cost_usd": round(self._calc_model_cost(expensive_model, e_pt, e_ct), 6),
+                                                "detail": f"升级至高阶模型调用成功 (200 OK)",
+                                                "snippet": (e_txt[:140] + "...") if len(e_txt) > 140 else e_txt,
+                                            })
                             except Exception as chk_e:
                                 log.warning("Real benchmark verify error: %s", chk_e)
                                 case_verify_status = "error"
                                 case_verify_failure_reason = f"质检裁决异常: {chk_e}"
-
-                                # 若建议升级，且有更强的高阶模型，触发升级重新转发
-                                if should_escalate and expensive_model and expensive_model.name != chosen_name:
-                                    esc_prov = self.router.config.providers.get(expensive_model.provider) if hasattr(self.router.config, "providers") else None
-                                    e_succ, e_dur, e_txt, e_pt, e_ct, e_err = await call_model_api(expensive_model, esc_prov, output_tokens)
-                                    real_dur += e_dur
-                                    esc_dur_ms = round(e_dur * 1000.0, 2)
-                                    if e_succ:
-                                        real_response_text = e_txt
-                                        real_p_tokens = e_pt
-                                        real_o_tokens = e_ct
-                                        chosen_model = expensive_model
-                                        chosen_name = expensive_model.name
-                                        is_case_escalated = True
-                                        hop_count = 2
-                                        raw_stages.append({
-                                            "stage_index": 4,
-                                            "stage_type": "escalate_model",
-                                            "name": expensive_model.name,
-                                            "provider": getattr(expensive_model, "provider", "none"),
-                                            "status": "success",
-                                            "start_ms": round(cur_start_ms, 2),
-                                            "duration_ms": esc_dur_ms,
-                                            "tokens": {"prompt": e_pt, "completion": e_ct, "total": e_pt + e_ct},
-                                            "cost_usd": round(self._calc_model_cost(expensive_model, e_pt, e_ct), 6),
-                                            "detail": f"升级至高阶模型调用成功 (200 OK)",
-                                            "snippet": (e_txt[:140] + "...") if len(e_txt) > 140 else e_txt,
-                                        })
-                            except Exception as chk_e:
-                                log.warning("Real benchmark verify error: %s", chk_e)
                     else:
                         # 首选模型调用失败或超时，记录并尝试容灾降级调度
                         err_msg = err

@@ -69,6 +69,7 @@ class ReportGenerator:
         v_enabled = v_stats.get("enabled", True)
         v_raw_judge = v_stats.get("judge_model", "deepseek-v4-flash")
         v_judge_disp = "Laya (本地模型)" if v_raw_judge.lower() == "laya" else v_raw_judge
+        v_passed = v_stats.get("passed", 0)
         v_pass_rate = v_stats.get("pass_rate_pct", 100.0)
         v_esc = v_stats.get("escalated", 0)
         v_exempt = v_stats.get("exempt", 0)
@@ -1266,7 +1267,7 @@ class ReportGenerator:
           {f'{v_pass_rate}%' if v_enabled else '未启用'}
           <span style="font-size: 14px; font-weight: normal; color: var(--text-muted); margin-left: 4px;">初验合格率</span>
         </div>
-        <div class="kpi-sub">{'初验合格 • 升级: ' + str(v_esc) + ' 例 | 旗舰免检: ' + str(v_exempt) + ' 例 (均耗: ' + str(v_avg_lat) + 'ms)' if v_enabled else '策略未启用质检保护'}</div>
+        <div class="kpi-sub">{'初验通过: ' + str(v_passed) + ' 例 • 触发升级: ' + str(v_esc) + ' 例 | 旗舰免检: ' + str(v_exempt) + ' 例 (均耗: ' + str(v_avg_lat) + 'ms)' if v_enabled else '策略未启用质检保护'}</div>
       </div>
     </section>
 
