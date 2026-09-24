@@ -43,9 +43,33 @@ Status: experimental, measured. Full method and numbers: [`EXPERIMENTS.md`](EXPE
    - 实时呈现全路径阶段耗时拆解时间轴（Laya 提示词分析、路由算法仲裁、上游网络往返及模型生成、质量验收裁决与全程总耗时）；
    - 内置暗色终端风实时执行追踪流水面板 (Execution Trace Console) 与一键复制排障 JSON 功能，精准排障定位。
 
-### 🚀 快速启动
+### 🚀 快速启动与环境配置
+
+#### 方式一：全自动跨平台一键安装（推荐，自适应 Windows / macOS / Linux）
+
+- **Windows 用户**：直接双击运行根目录下的 `install.bat`，或在命令行执行：
+  ```cmd
+  install.bat
+  # 或直接执行：python install.py
+  ```
+  *(脚本将自动检测 NVIDIA 显卡驱动并安装匹配的 PyTorch CUDA 12.4 轮子包，同时自动探测网络并启用国内清华/阿里源及 HF-Mirror 镜像加速)*
+
+- **macOS / Linux 用户**：在终端执行根目录下的 `install.sh`：
+  ```bash
+  chmod +x install.sh && ./install.sh
+  # 或直接执行：python3 install.py
+  ```
+  *(Apple Silicon M系列芯片将自动启用原生 Apple Metal MPS GPU 硬件加速)*
+
+- **环境就绪自检**：任何时候均可随时执行依赖与加速器环境自检：
+  ```bash
+  python install.py --check-only
+  ```
+
+#### 方式二：标准手动安装
+
 ```bash
-# 1. 安装依赖
+# 1. 安装项目全部跨平台业务依赖（含 Web 服务、进程监控与 Laya 路由运行时）
 pip install -r requirements.txt
 
 # 2. 启动服务（默认监听 0.0.0.0:8765）
