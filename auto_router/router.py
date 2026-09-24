@@ -181,14 +181,16 @@ class Router:
         #: same - but no judge, and then nothing is ever checked and nothing is
         #: priced as if it were.
         self.verify = VerifyPolicy.from_config(config.policy or {})
+        self.classifier = classifier if classifier is not None else jev.classifier_from_config(config.policy)
         self.judge = judge or (jev.judge if os.environ.get("TYPESAFE_API_KEY") else None)
+        if self.judge is None and hasattr(self.classifier, "judge"):
+            self.judge = self.classifier.judge
         if isinstance(self.policy, ExpectedCostPolicy) and self.policy.verify is None:
             self.policy.verify = self.verify
             self.policy.judge_available = self.judge is not None
         self.success = success or success_model_from_config(config.policy or {})
         cal = (config.policy or {}).get("jev_difficulty_calibration") or [0.0, 1.0]
         self.jev_offset, self.jev_scale = float(cal[0]), float(cal[1]) or 1.0
-        self.classifier = classifier if classifier is not None else jev.classifier_from_config(config.policy)
         self.quota_reader = quota_reader or self._read_quota
         self.conversations: dict[str, Conversation] = {}
         self.estimator = CalibratedEstimator()

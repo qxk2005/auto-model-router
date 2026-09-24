@@ -260,6 +260,7 @@ function renderModels() {
   const tbody = document.getElementById("modelsTableBody");
   if (!tbody || !currentConfig || !currentConfig.models) return;
   tbody.innerHTML = "";
+  populateJudgeModelSelect();
 
   currentConfig.models.forEach((m, idx) => {
     const tr = document.createElement("tr");
@@ -302,11 +303,68 @@ function renderModels() {
   });
 }
 
+// Populate Judge Model Dropdown
+function populateJudgeModelSelect(selectedModel) {
+  const sel = document.getElementById("verifyJudgeModelSelect");
+  if (!sel) return;
+  const currentVal = selectedModel || sel.value || (currentConfig?.policy?.verify?.judge_model) || "deepseek-v4-flash";
+  sel.innerHTML = "";
+
+  // 1. Laya Local Engine option
+  const layaOpt = document.createElement("option");
+  layaOpt.value = "laya";
+  layaOpt.textContent = "Laya 本地分类裁决引擎 (Local Engine)";
+  sel.appendChild(layaOpt);
+
+  // 2. Configured Models
+  if (currentConfig && Array.isArray(currentConfig.models)) {
+    currentConfig.models.forEach(m => {
+      const opt = document.createElement("option");
+      opt.value = m.name;
+      const cap = m.capability?.general || m.capability?.coding || "--";
+      const inPrice = (m.prices && m.prices.input !== undefined) ? m.prices.input : "--";
+      opt.textContent = `${m.name} (${m.provider} - 算力:${cap}, $${inPrice}/Mtok)`;
+      sel.appendChild(opt);
+    });
+  }
+  sel.value = currentVal;
+  if (!sel.value && sel.options.length > 0) {
+    sel.selectedIndex = 0;
+  }
+}
+
+function onVerifyEnabledChanged() {
+  const chk = document.getElementById("verifyEnabledSwitch") ? document.getElementById("verifyEnabledSwitch").checked : false;
+  updateVerifyBadge(chk);
+}
+
+function updateVerifyBadge(enabled) {
+  const badge = document.getElementById("verifyStatusBadge");
+  const label = document.getElementById("verifyEnabledLabel");
+  if (badge) {
+    if (enabled) {
+      badge.textContent = "已启用";
+      badge.style.background = "#ecfdf5";
+      badge.style.color = "#059669";
+      badge.style.borderColor = "#a7f3d0";
+    } else {
+      badge.textContent = "未启用";
+      badge.style.background = "#f1f5f9";
+      badge.style.color = "#64748b";
+      badge.style.borderColor = "#cbd5e1";
+    }
+  }
+  if (label) {
+    label.textContent = enabled ? "质检验收已开启" : "启用质检验收";
+  }
+}
+
 // Render Policy Form
 function renderPolicyForm() {
   if (!currentConfig || !currentConfig.policy) return;
   const pol = currentConfig.policy;
   const clf = pol.classifier || {};
+  const vfy = pol.verify || {};
 
   const curRate = (pol.currency && pol.currency.usd_cny_rate) ? pol.currency.usd_cny_rate : 7.20;
   const usdRateInput = document.getElementById("usdCnyRateInput");
@@ -324,6 +382,27 @@ function renderPolicyForm() {
   document.getElementById("layaModelInput").value = clf.model || "convaiinnovations/laya";
   document.getElementById("layaSubfolderInput").value = clf.subfolder || "multilingual";
   document.getElementById("requestCharsInput").value = clf.request_chars || 6000;
+
+  // Verify and Escalate Controls
+  populateJudgeModelSelect(vfy.judge_model);
+  const verifySwitch = document.getElementById("verifyEnabledSwitch");
+  if (verifySwitch) {
+    const isVfyOn = vfy.enabled !== false;
+    verifySwitch.checked = isVfyOn;
+    updateVerifyBadge(isVfyOn);
+  }
+  const threshInp = document.getElementById("verifyThresholdInput");
+  if (threshInp) {
+    threshInp.value = (vfy.thresholds && vfy.thresholds.default !== undefined) ? vfy.thresholds.default : 0.30;
+  }
+  const maxCapInp = document.getElementById("verifyMaxCapabilityInput");
+  if (maxCapInp) {
+    maxCapInp.value = vfy.max_capability !== undefined ? vfy.max_capability : 77.5;
+  }
+  const maxPriceInp = document.getElementById("verifyMaxPriceInput");
+  if (maxPriceInp) {
+    maxPriceInp.value = vfy.max_price_per_mtok !== undefined ? vfy.max_price_per_mtok : 2.5;
+  }
 }
 
 // Save Policy Form
@@ -352,6 +431,27 @@ async function savePolicyConfig() {
     context_chars: 2000,
   };
 
+  // Verify and Escalate settings
+  const vfyEnabled = document.getElementById("verifyEnabledSwitch") ? document.getElementById("verifyEnabledSwitch").checked : true;
+  const vfyJudge = document.getElementById("verifyJudgeModelSelect") ? document.getElementById("verifyJudgeModelSelect").value : "deepseek-v4-flash";
+  const vfyThresh = parseFloat(document.getElementById("verifyThresholdInput")?.value) || 0.30;
+  const vfyMaxCap = parseFloat(document.getElementById("verifyMaxCapabilityInput")?.value) || 77.5;
+  const vfyMaxPrice = parseFloat(document.getElementById("verifyMaxPriceInput")?.value) || 2.5;
+
+  currentConfig.policy.verify = {
+    ...(currentConfig.policy.verify || {}),
+    enabled: vfyEnabled,
+    judge_model: vfyJudge,
+    max_capability: vfyMaxCap,
+    max_price_per_mtok: vfyMaxPrice,
+    thresholds: {
+      ...((currentConfig.policy.verify && currentConfig.policy.verify.thresholds) || {}),
+      default: vfyThresh,
+      coding: vfyThresh,
+      math: vfyThresh,
+    }
+  };
+
   try {
     const res = await fetch("/api/config", {
       method: "POST",
@@ -359,7 +459,7 @@ async function savePolicyConfig() {
       body: JSON.stringify(currentConfig),
     });
     if (res.ok) {
-      showToast("配置保存成功并已实时生效！", "success");
+      showToast("策略与质检配置保存成功并已实时生效！", "success");
       refreshStatus();
       renderModels();
     } else {
