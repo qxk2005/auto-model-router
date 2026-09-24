@@ -1660,9 +1660,17 @@ class ReportGenerator:
           : `<span style="color: var(--warning); font-weight: 600;">⚠ 偏置</span>`;
 
         const isEscalated = r.escalated || false;
-        const hopBadge = isEscalated
-          ? `<span class="badge" style="background:#f5f3ff; color:#7c3aed; font-size:11px; padding:2px 8px;">🔄 2跳 (升级/容灾)</span>`
-          : `<span class="badge" style="background:#ecfdf5; color:#059669; font-size:11px; padding:2px 8px;">✓ 1跳直达</span>`;
+        const isEscalateFailed = isEscalated && (Boolean(r.error) || !r.real_response);
+        let hopBadge = "";
+        if (isEscalated) {{
+          if (isEscalateFailed) {{
+            hopBadge = `<span class="badge" style="background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; font-size:11px; padding:2px 8px;" title="首选初验未达标，尝试升级但端点异常: ${{r.error || '未响应'}}">🔄 2跳 (升级异常)</span>`;
+          }} else {{
+            hopBadge = `<span class="badge" style="background:#f5f3ff; color:#7c3aed; font-size:11px; padding:2px 8px;" title="首选初验未达标，二跳自动升级至高阶模型交付成功">🔄 2跳 (升级成功)</span>`;
+          }}
+        }} else {{
+          hopBadge = `<span class="badge" style="background:#ecfdf5; color:#059669; font-size:11px; padding:2px 8px;">✓ 1跳直达</span>`;
+        }}
 
         const vStatus = r.verify_status || (r.verified ? (r.escalated ? "escalated" : "passed") : "disabled");
         let vBadge = "";
@@ -1670,8 +1678,13 @@ class ReportGenerator:
           const scoreStr = r.verify_score !== undefined && r.verify_score !== null ? r.verify_score.toFixed(2) : "合格";
           vBadge = `<span class="badge" style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; font-size:11px; padding:2px 8px;" title="裁决官: ${{r.verify_judge || 'Judge'}} | 满意度评分: ${{scoreStr}}">✓ 验收合格 (${{scoreStr}})</span>`;
         }} else if (vStatus === "escalated") {{
-          const scoreStr = r.verify_score !== undefined && r.verify_score !== null ? r.verify_score.toFixed(2) : "不足";
-          vBadge = `<span class="badge" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a; font-size:11px; padding:2px 8px;" title="${{r.verify_failure_reason || '质量未达标'}} | 评分: ${{scoreStr}}">🔄 未达标升级 (${{scoreStr}})</span>`;
+          const scoreStr = r.verify_score !== undefined && r.verify_score !== null ? r.verify_score.toFixed(2) : "0.00";
+          if (isEscalated && !isEscalateFailed) {{
+            // 遵照用户确认的 A1 方案：明确区分初检与终局交付
+            vBadge = `<span class="badge" style="background:#f5f3ff; color:#6d28d9; border:1px solid #c4b5fd; font-size:11px; padding:2px 8px;" title="${{r.chosen_model}} 升级交付成功 | 首选初检: ${{scoreStr}} (${{r.verify_failure_reason || '质量不达标'}}) ➔ 升级高阶商业模型交付">🔄 升级成功交付</span>`;
+          }} else {{
+            vBadge = `<span class="badge" style="background:#fff7ed; color:#c2410c; border:1px solid #fed7aa; font-size:11px; padding:2px 8px;" title="首选初检未达标 (${{scoreStr}})，升级过程未完成: ${{r.error || '端点未响应'}}">⚠ 升级未完成 (${{scoreStr}})</span>`;
+          }}
         }} else if (vStatus === "exempt") {{
           vBadge = `<span class="badge" style="background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; font-size:11px; padding:2px 8px;" title="高阶旗舰商业模型免检直达">⚡ 旗舰免检</span>`;
         }} else if (vStatus === "unverified") {{
