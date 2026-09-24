@@ -574,12 +574,16 @@ class ReportGenerator:
       font-size: 13px;
     }}
     th {{
+      position: sticky;
+      top: 0;
+      z-index: 10;
       background: #f8fafc;
       color: var(--text-muted);
       font-weight: 600;
       padding: 12px 14px;
       border-bottom: 1px solid var(--card-border);
       white-space: nowrap;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     }}
     td {{
       padding: 12px 14px;
@@ -738,6 +742,8 @@ class ReportGenerator:
       padding: 16px 20px;
       border-top: 1px dashed #cbd5e1;
       border-bottom: 2px solid #cbd5e1;
+      width: 100%;
+      box-sizing: border-box;
     }}
 
     .jaeger-container {{
@@ -748,6 +754,50 @@ class ReportGenerator:
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       margin-bottom: 6px;
+      width: 100%;
+      box-sizing: border-box;
+    }}
+
+    /* Sticky Floating Horizontal Scrollbar */
+    .sticky-floating-scrollbar {{
+      position: fixed;
+      bottom: 0;
+      height: 12px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      z-index: 999;
+      background: rgba(248, 250, 252, 0.94);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-top: 1px solid #cbd5e1;
+      box-shadow: 0 -3px 12px rgba(0, 0, 0, 0.08);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.18s ease, visibility 0.18s ease;
+      box-sizing: border-box;
+    }}
+    .sticky-floating-scrollbar.active {{
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }}
+    .sticky-floating-scrollbar-track {{
+      height: 1px;
+      pointer-events: none;
+    }}
+    .sticky-floating-scrollbar::-webkit-scrollbar {{
+      height: 8px;
+    }}
+    .sticky-floating-scrollbar::-webkit-scrollbar-track {{
+      background: transparent;
+    }}
+    .sticky-floating-scrollbar::-webkit-scrollbar-thumb {{
+      background: #94a3b8;
+      border-radius: 4px;
+    }}
+    .sticky-floating-scrollbar::-webkit-scrollbar-thumb:hover {{
+      background: #64748b;
     }}
     
     /* Top Trace Bar */
@@ -1387,7 +1437,11 @@ class ReportGenerator:
           <tbody id="tableBody">
             <!-- Populated by JS -->
           </tbody>
-        </table>
+      </div>
+
+      <!-- Sticky Floating Horizontal Scrollbar -->
+      <div id="stickyFloatingScrollbar" class="sticky-floating-scrollbar">
+        <div id="stickyFloatingScrollbarTrack" class="sticky-floating-scrollbar-track"></div>
       </div>
     </div>
 
@@ -1580,6 +1634,9 @@ class ReportGenerator:
         drawer.style.display = "table-row";
         btnEl.innerHTML = "<span>收起链路 ▴</span>";
         btnEl.style.background = "#bae6fd";
+      }}
+      if (window._updateFloatingScrollbar) {{
+        requestAnimationFrame(window._updateFloatingScrollbar);
       }}
     }}
 
@@ -1815,8 +1872,9 @@ class ReportGenerator:
           `;
         }});
 
+        const colSpanCount = document.querySelectorAll("#casesTable thead th").length || 11;
         trDrawer.innerHTML = `
-          <td colspan="10" class="trace-drawer-content">
+          <td colspan="${{colSpanCount}}" class="trace-drawer-content">
             <div class="jaeger-container" id="jaeger_container_${{r.case_id}}">
               <!-- Header Topbar -->
               <div class="jaeger-topbar">
@@ -1891,6 +1949,10 @@ class ReportGenerator:
         `;
         tbody.appendChild(trDrawer);
       }});
+
+      if (window._updateFloatingScrollbar) {{
+        requestAnimationFrame(window._updateFloatingScrollbar);
+      }}
     }}
 
     // Filter by Topo Stage Node Click
@@ -1948,9 +2010,63 @@ class ReportGenerator:
       renderTable(filtered);
     }}
 
+    // -------------------------------------------------------------
+    // Sticky Floating Horizontal Scrollbar Dual-Sync System
+    // -------------------------------------------------------------
+    function initFloatingScrollbar() {{
+      const tableContainer = document.querySelector(".table-container");
+      const floatBar = document.getElementById("stickyFloatingScrollbar");
+      const floatTrack = document.getElementById("stickyFloatingScrollbarTrack");
+      if (!tableContainer || !floatBar || !floatTrack) return;
+
+      let isSyncingFromTable = false;
+      let isSyncingFromBar = false;
+
+      // 1. Dual-sync scrollLeft
+      tableContainer.addEventListener("scroll", () => {{
+        if (isSyncingFromBar) return;
+        isSyncingFromTable = true;
+        floatBar.scrollLeft = tableContainer.scrollLeft;
+        requestAnimationFrame(() => {{ isSyncingFromTable = false; }});
+      }}, {{ passive: true }});
+
+      floatBar.addEventListener("scroll", () => {{
+        if (isSyncingFromTable) return;
+        isSyncingFromBar = true;
+        tableContainer.scrollLeft = floatBar.scrollLeft;
+        requestAnimationFrame(() => {{ isSyncingFromBar = false; }});
+      }}, {{ passive: true }});
+
+      // 2. Position and Visibility check
+      function updateFloatingScrollbar() {{
+        const rect = tableContainer.getBoundingClientRect();
+        const hasHorizontalScroll = tableContainer.scrollWidth > tableContainer.clientWidth;
+
+        // 当表格存在横向滚动，并且在屏幕视口内、且表格底边尚未滚入视口时激活悬浮滚动条
+        const isTableInView = rect.top < window.innerHeight && rect.bottom > 40;
+        const isTableBottomBelowViewport = rect.bottom > window.innerHeight;
+
+        if (hasHorizontalScroll && isTableInView && isTableBottomBelowViewport) {{
+          floatBar.style.left = `${{rect.left}}px`;
+          floatBar.style.width = `${{rect.width}}px`;
+          floatTrack.style.width = `${{tableContainer.scrollWidth}}px`;
+          floatBar.scrollLeft = tableContainer.scrollLeft;
+          floatBar.classList.add("active");
+        }} else {{
+          floatBar.classList.remove("active");
+        }}
+      }}
+
+      window.addEventListener("scroll", updateFloatingScrollbar, {{ passive: true }});
+      window.addEventListener("resize", updateFloatingScrollbar, {{ passive: true }});
+      window._updateFloatingScrollbar = updateFloatingScrollbar;
+      updateFloatingScrollbar();
+    }}
+
     // Initial render
     initTopologyPanel();
     renderTable(results);
+    initFloatingScrollbar();
   </script>
 </body>
 </html>
