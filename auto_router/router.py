@@ -688,8 +688,16 @@ class Router:
         stakes_idx = min(len(STAKES_USD) - 1, int(round(cls.stakes * (len(STAKES_USD) - 1))))
         agentic = has_tools and cls.needs_tools > 0.5
         difficulty = max(0.0, min(1.0, (cls.difficulty - self.jev_offset) / self.jev_scale))
+        category = cls.category if cls.category in self.success_categories() else "general"
+        if category == "long_context" and request_chars < 1500:
+            probs = getattr(cls, "category_probs", {}) or {}
+            non_long = {k: v for k, v in probs.items() if k != "long_context"}
+            if non_long:
+                category = max(non_long.items(), key=lambda kv: kv[1])[0]
+            else:
+                category = "general"
         return TurnRequest(
-            category=cls.category if cls.category in self.success_categories() else "general",
+            category=category,
             difficulty=difficulty,
             prompt_tokens=prompt_tokens,
             output_tokens=min(max_tokens or 4000, 4000) if not agentic else 6000,
@@ -751,8 +759,18 @@ class Router:
         if not applies:
             verdict = not_verified(why, model=result.model.name, category=req.category)
         elif not answer.strip():
-            verdict = not_verified("the route returned no text to check",
-                                   model=result.model.name, category=req.category)
+            # 首选模型未输出正文或回答残缺，质检判定为质量不达标 (incomplete) 并建议升级
+            verdict = Verdict(
+                verified=True,
+                p_adequate=0.0,
+                threshold=self.verify.threshold(req.category),
+                escalate=True,
+                failure="incomplete",
+                judge_model="laya-verifier" if self.judge else "local",
+                reason="首选模型未生成正文或内容残缺，质量判定不达标，触发升级重发",
+                category=req.category,
+                model=result.model.name,
+            )
         else:
             try:
                 judgement = self.judge(request_text, answer, category=req.category)
