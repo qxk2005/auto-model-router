@@ -628,49 +628,64 @@ body {
 .table-wrap {
   width: 100%;
   max-width: 100%;
-  overflow-x: scroll !important; /* 强制水平滚动条常驻显式，杜绝 macOS/WebKit 在宽屏下自动隐藏 */
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   border-radius: 10px;
   border: 1px solid var(--card-border);
   box-sizing: border-box;
   background: #ffffff;
   scrollbar-width: thin;
-  scrollbar-color: #94a3b8 #f1f5f9;
+  scrollbar-color: #cbd5e1 #f8fafc;
 }
 
-/* 覆盖 macOS/WebKit 系统默认自动隐藏滚动条机制，保持精致滚动条常驻显式可见与随时拖拽 */
 .table-wrap::-webkit-scrollbar {
-  height: 10px !important;
-  width: 10px !important;
-  display: block !important;
-  background: #f1f5f9;
+  height: 8px;
+  width: 8px;
+  background: #f8fafc;
 }
 
 .table-wrap::-webkit-scrollbar-track {
   background: #f1f5f9;
-  border-radius: 6px;
+  border-radius: 4px;
   margin: 0 4px;
 }
 
 .table-wrap::-webkit-scrollbar-thumb {
-  background: #94a3b8;
-  border-radius: 6px;
+  background: #cbd5e1;
+  border-radius: 4px;
   border: 2px solid #f1f5f9;
 }
 
 .table-wrap::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #94a3b8;
 }
 
 .table-wrap::-webkit-scrollbar-thumb:active {
-  background: #334155;
+  background: #64748b;
 }
 
 .data-table {
   width: 100%;
-  min-width: 1280px; /* 10 列舒适舒展展开，彻底杜绝内容挤压，在任意常规宽度屏幕下均稳定触发水平滑动 */
   border-collapse: collapse;
   font-size: 13px;
+}
+
+/* 专为路由模型目录表格设计的自适应全宽排版，在一页中优雅完整呈现，无需横向滚动 */
+.models-catalog-table {
+  width: 100% !important;
+  min-width: 0 !important;
+  table-layout: auto;
+}
+
+.models-catalog-table th,
+.models-catalog-table td {
+  padding: 11px 8px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+#leaderboardMainTable {
+  min-width: 880px;
 }
 
 .data-table th {

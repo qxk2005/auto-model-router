@@ -6,8 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>Auto-LLM-Router 控制台 | 智能模型路由器 (Laya)</title>
-  <link rel="stylesheet" href="/web/style.css?v=20260924_arena_sync_v4">
+  <link rel="stylesheet" href="/web/style.css?v=20260924_models_fit_v1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -277,21 +276,18 @@
             <button class="btn btn-primary" onclick="openAddModelModal()">
               <span>+ 添加模型</span>
             </button>
-          </div>
-          <div class="table-wrap" style="overflow-x: scroll !important;">
-            <table class="data-table">
+          <div class="table-wrap">
+            <table class="data-table models-catalog-table">
               <thead>
                 <tr>
-                  <th>模型代号</th>
-                  <th>提供商</th>
-                  <th>上游 Model ID</th>
-                  <th>免费/零成本</th>
-                  <th>输入单价 (¥/1M)</th>
-                  <th>输出单价 (¥/1M)</th>
-                  <th>缓存命中单价 (¥/1M)</th>
-                  <th>上下文窗口</th>
-                  <th>可用性与能力探测</th>
-                  <th>操作</th>
+                  <th style="width: 22%;">模型代号 / 上游 ID</th>
+                  <th style="width: 11%;">提供商</th>
+                  <th style="width: 13%;">输入单价 (¥/1M)</th>
+                  <th style="width: 13%;">输出单价 (¥/1M)</th>
+                  <th style="width: 11%;">缓存单价 (¥/1M)</th>
+                  <th style="width: 11%;">上下文 / 超时</th>
+                  <th style="width: 9%;">可用性探测</th>
+                  <th style="width: 10%; text-align: right;">操作</th>
                 </tr>
               </thead>
               <tbody id="modelsTableBody">
@@ -1067,6 +1063,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=20260924_arena_sync_v4"></script>
+  <script src="/web/app.js?v=20260924_models_fit_v1"></script>
 </body>
 </html>
