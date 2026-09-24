@@ -197,7 +197,7 @@ class VerifyPolicy:
         # the answer depends on is a property of the *question*, true of every
         # route; reporting "this route is too strong to grade" instead would
         # hide the more interesting half of the gate behind an accident of
-        if category in self.skip_categories:
+        if category in self.skip_categories and request_chars > 3000:
             return False, ("the judge cannot see the document this answer depends on "
                            f"(category {category})")
         if (needs_long_context or request_chars > self.max_request_chars) and request_chars > self.max_request_chars:

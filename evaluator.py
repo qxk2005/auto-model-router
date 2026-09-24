@@ -910,7 +910,7 @@ class BenchmarkEvaluator:
                                 "detail": f"首选旗舰商业模型能力分 {chosen_cap:.1f} >= {max_cap}，免检直通交付",
                                 "snippet": "旗舰商业模型能力达标，命中免检规则直通交付",
                             })
-                        elif hasattr(self.router, "check") and ans_txt:
+                        elif hasattr(self.router, "check"):
                             t_chk_0 = time.perf_counter()
                             try:
                                 verdict = await loop.run_in_executor(None, lambda: self.router.check(route_res, prompt, ans_txt))
