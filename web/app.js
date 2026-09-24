@@ -732,6 +732,50 @@ async function runSingleTest() {
                 contentPre.textContent = contentText || "（生成完成，上游返回空白文本）";
               }
             }
+          } else if (ev.type === "verify_start") {
+            const verWrap = document.getElementById("chipVerifyWrap");
+            if (verWrap) {
+              verWrap.style.display = "inline-flex";
+              document.getElementById("chipVerifyMs").innerHTML = `<span style="animation: pulse 1.5s infinite;">⏳ 评判中...</span>`;
+            }
+          } else if (ev.type === "verify_done") {
+            const verWrap = document.getElementById("chipVerifyWrap");
+            const verMs = ev.verification_ms || 0;
+            if (verWrap) {
+              verWrap.style.display = "inline-flex";
+              const vLabel = ev.verdict?.escalate ? "⚠️ 触发升级" : "✓ 合格";
+              document.getElementById("chipVerifyMs").textContent = `${verMs} ms (${vLabel})`;
+            }
+            // 在首选卡片右上角增加质检结果徽章
+            const pCard = document.getElementById("dispCard_1");
+            if (pCard) {
+              const hActions = document.getElementById("dispHeaderActions_1");
+              if (hActions && !document.getElementById("dispVerifyBadge_1")) {
+                const vBadge = document.createElement("span");
+                vBadge.id = "dispVerifyBadge_1";
+                vBadge.className = "badge";
+                if (ev.verdict?.escalate) {
+                  vBadge.style.cssText = "background:#fef3c7; color:#b45309; border:1px solid #fde68a; font-size:11px; padding:2px 8px;";
+                  vBadge.title = ev.verdict?.reason || "质检验收未通过";
+                  vBadge.textContent = `⚠️ 质检 ${Number(ev.verdict?.p_adequate || 0).toFixed(2)} (未通过)`;
+                } else {
+                  vBadge.style.cssText = "background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; font-size:11px; padding:2px 8px;";
+                  vBadge.title = "质检合格直接交付";
+                  vBadge.textContent = `✓ 质检合格 (${Number(ev.verdict?.p_adequate || 0).toFixed(2)})`;
+                }
+                hActions.prepend(vBadge);
+              }
+            }
+          } else if (ev.type === "escalate_start") {
+            const pCard = document.getElementById("dispCard_1");
+            if (pCard && !document.getElementById("dispEscalateAlert_1")) {
+              const alertBox = document.createElement("div");
+              alertBox.id = "dispEscalateAlert_1";
+              alertBox.style.cssText = "background:#fffbeb; border:1px solid #fde68a; color:#92400e; padding:8px 12px; border-radius:6px; font-size:12px; margin-top:8px;";
+              alertBox.innerHTML = `⚠️ <strong>质检未达标触发两跳升级</strong>：评分偏低 (${escapeHtml(ev.reason || '')})，已自动调度旗舰高阶模型 <strong>${escapeHtml(ev.target_model || '')}</strong> 重新生成高确定性解答。`;
+              const b = document.getElementById("dispBody_1");
+              if (b) b.prepend(alertBox);
+            }
           } else if (ev.type === "done") {
             lastDiagnosticData = ev;
             const timing = ev.timing || {};
@@ -836,9 +880,25 @@ async function runSingleTest() {
           const isSuccess = item.status === "success";
           card.className = `dispatched-model-card ${isSuccess ? 'status-success' : 'status-error'}`;
 
-          const roleTag = item.is_primary 
-            ? `<span class="dispatched-role-tag dispatched-role-primary">👑 路由首选模型</span>`
-            : `<span class="dispatched-role-tag dispatched-role-fallback">🔄 自动降级备选 (#${item.attempt || idx + 1})</span>`;
+          const isEscalation = item.is_escalation || false;
+          let roleTag = "";
+          if (isEscalation) {
+            roleTag = `<span class="dispatched-role-tag" style="background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe;">🎯 质检二次升级交付</span>`;
+          } else if (item.is_primary) {
+            roleTag = `<span class="dispatched-role-tag dispatched-role-primary">👑 路由首选模型</span>`;
+          } else {
+            roleTag = `<span class="dispatched-role-tag dispatched-role-fallback">🔄 自动降级备选 (#${item.attempt || idx + 1})</span>`;
+          }
+
+          let vfyBadge = "";
+          if (item.verification && item.verification.verified) {
+            const v = item.verification;
+            if (v.escalate) {
+              vfyBadge = `<span class="badge" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a; font-size:11px; padding:2px 8px;" title="${escapeHtml(v.reason || '未达标')}">⚠️ 质检 ${Number(v.score || 0).toFixed(2)} (未通过)</span>`;
+            } else {
+              vfyBadge = `<span class="badge" style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; font-size:11px; padding:2px 8px;" title="满意度达标">✓ 质检合格 (${Number(v.score || 0).toFixed(2)})</span>`;
+            }
+          }
 
           const statusBadge = isSuccess
             ? `<span class="badge badge-success" style="font-size:11.5px; padding:3px 8px;">✓ 调度成功 (${item.latency_ms}ms)</span>`
@@ -855,6 +915,7 @@ async function runSingleTest() {
                 ${tokensInfo ? `<span style="font-size:11.5px; color:var(--text-muted); margin-left:4px;">Tokens [${tokensInfo}]</span>` : ''}
               </div>
               <div style="display:flex; align-items:center; gap:8px;">
+                ${vfyBadge}
                 ${statusBadge}
                 ${isSuccess ? `<button type="button" class="btn btn-outline btn-sm" onclick="copyModelOutput(${idx}, this)" style="padding: 2px 8px; font-size:11.5px;">📋 复制回答</button>` : ''}
               </div>
