@@ -28,18 +28,18 @@
         "cache_write": 0.2
       },
       "capability": {
-        "coding": 77,
+        "coding": 76,
         "math": 76,
-        "reasoning": 77,
-        "general": 77,
-        "knowledge": 77,
-        "summarisation": 77,
-        "agentic": 77,
-        "tool_use": 77
+        "reasoning": 76,
+        "general": 76,
+        "knowledge": 76,
+        "summarisation": 76,
+        "agentic": 76,
+        "tool_use": 76
       },
       "context_tokens": 65536,
       "tools": true,
-      "vision": false
+      "vision": true
     },
     {
       "name": "deepseek-v4-pro",
@@ -53,18 +53,18 @@
         "cache_write": 1
       },
       "capability": {
-        "coding": 78,
+        "coding": 77,
         "math": 77,
-        "reasoning": 78,
-        "general": 78,
-        "knowledge": 78,
-        "summarisation": 78,
-        "agentic": 78,
-        "tool_use": 78
+        "reasoning": 77,
+        "general": 77,
+        "knowledge": 77,
+        "summarisation": 77,
+        "agentic": 70,
+        "tool_use": 77
       },
       "context_tokens": 128000,
       "tools": true,
-      "vision": false
+      "vision": true
     },
     {
       "name": "gemma-4-e4b-it",
@@ -78,14 +78,14 @@
         "cache_write": 0
       },
       "capability": {
-        "coding": 78,
-        "math": 77,
-        "general": 78,
-        "knowledge": 78,
-        "summarisation": 78,
-        "agentic": 78,
-        "tool_use": 78,
-        "reasoning": 78
+        "coding": 76,
+        "math": 76,
+        "general": 76,
+        "knowledge": 76,
+        "summarisation": 76,
+        "agentic": 76,
+        "tool_use": 76,
+        "reasoning": 76
       },
       "context_tokens": 32768,
       "tools": true,

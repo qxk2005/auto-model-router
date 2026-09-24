@@ -33,7 +33,16 @@ document.addEventListener("DOMContentLoaded", () => {
       lblStream.style.opacity = chkEndToEnd.checked ? "1" : "0.5";
       lblStream.style.pointerEvents = chkEndToEnd.checked ? "auto" : "none";
     });
+  const initialTab = (location.hash || "").replace("#", "").trim();
+  if (initialTab && ["monitor", "models", "policy", "benchmark", "leaderboard"].includes(initialTab)) {
+    switchTab(initialTab);
   }
+  window.addEventListener("hashchange", () => {
+    const t = (location.hash || "").replace("#", "").trim();
+    if (t && ["monitor", "models", "policy", "benchmark", "leaderboard"].includes(t)) {
+      switchTab(t);
+    }
+  });
 });
 
 // Toast notification helper
@@ -55,6 +64,10 @@ function switchTab(tabId) {
     if (pane) pane.classList.toggle("active", t === tabId);
     if (nav) nav.classList.toggle("active", t === tabId);
   });
+
+  if (location.hash !== `#${tabId}`) {
+    history.replaceState(null, "", `#${tabId}`);
+  }
 
   const titles = {
     monitor: ["网关状态与实时监控", "监测硬件加速本地 Laya 决策引擎与网关实时运行指标"],
@@ -231,9 +244,13 @@ function onUsdRateChanged() {
 
 function formatDualPrice(cnyPrice) {
   const p = parseFloat(cnyPrice) || 0;
+  if (p === 0) {
+    return `<span class="dual-price" style="color:var(--text-muted);">¥0.00</span>`;
+  }
   const rate = getUsdCnyRate();
-  const usd = (p / rate).toFixed(4);
-  return `<span class="dual-price">¥${p.toFixed(3)} <span class="sub-price">($${usd})</span></span>`;
+  const digits = p < 1 ? 3 : 2;
+  const usd = (p / rate).toFixed(digits);
+  return `<span class="dual-price">¥${p.toFixed(digits)} <span class="sub-price">($${usd})</span></span>`;
 }
 
 function updatePricingUsdDisplay() {
@@ -279,21 +296,24 @@ function renderModels() {
     }
 
     tr.innerHTML = `
-      <td><strong style="color:var(--primary); font-family:var(--font-mono);">${m.name}</strong></td>
+      <td>
+        <div style="font-weight:700; color:var(--primary); font-family:var(--font-mono); font-size:13.5px; line-height:1.2;">${m.name}</div>
+        <div style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono); margin-top:3px;">上游: ${m.upstream_id || m.name}</div>
+        ${m.free ? '<div style="margin-top:3px;"><span class="badge badge-green" style="font-size:10px; padding:1px 6px;">✓ 免费(0成本)</span></div>' : ''}
+      </td>
       <td><span class="badge badge-purple">${m.provider}</span></td>
-      <td style="font-family:var(--font-mono); font-size:12px;">${m.upstream_id || 'default'}</td>
-      <td>${m.free ? '<span style="color:var(--success); font-weight:600;">✓ 免费(0成本)</span>' : '<span style="color:var(--text-dim);">计费</span>'}</td>
       <td>${formatDualPrice(p.input)}</td>
       <td>${formatDualPrice(p.output)}</td>
+      <td>${formatDualPrice(p.cache_read || 0)}</td>
       <td>
-        ${(m.context_tokens || 32768) / 1024}k
-        <div style="font-size:11px; margin-top:2px;">
-          ${m.timeout_seconds ? `<span class="badge badge-purple" style="font-size:10px; padding:2px 5px;">⏱️ ${m.timeout_seconds}s</span>` : `<span style="color:var(--text-dim); font-size:10px;">⏱️ 继承(${currentConfig?.policy?.request_timeout_seconds || 60}s)</span>`}
+        <div style="font-family:var(--font-mono); font-weight:600; font-size:12.5px;">${(m.context_tokens || 32768) / 1024}k</div>
+        <div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;">
+          ${m.timeout_seconds ? `<span class="badge badge-purple" style="font-size:9.5px; padding:1px 4px;">⏱️ ${m.timeout_seconds}s</span>` : `<span style="color:var(--text-dim); font-size:10px;">⏱️ 继承(${currentConfig?.policy?.request_timeout_seconds || 60}s)</span>`}
         </div>
       </td>
       <td>${probeHtml}</td>
-      <td>
-        <div class="action-btns-group">
+      <td style="text-align: right;">
+        <div class="action-btns-group" style="justify-content: flex-end;">
           <button class="btn btn-outline btn-sm" onclick="openEditModelModal(${idx})">✏️ 编辑</button>
           <button class="btn btn-secondary btn-sm" style="color:var(--danger);" onclick="deleteModel(${idx})">删除</button>
         </div>
