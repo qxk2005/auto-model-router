@@ -78,13 +78,13 @@
         "cache_write": 0
       },
       "capability": {
-        "coding": 75,
-        "math": 70,
-        "general": 80,
-        "knowledge": 75,
-        "summarisation": 80,
-        "agentic": 70,
-        "tool_use": 72
+        "coding": 70,
+        "math": 68,
+        "general": 68,
+        "knowledge": 70,
+        "summarisation": 70,
+        "agentic": 65,
+        "tool_use": 68
       },
       "context_tokens": 32768,
       "tools": true,

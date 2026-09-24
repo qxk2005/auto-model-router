@@ -67,7 +67,8 @@ class ReportGenerator:
         # Extract Verification Stats
         v_stats = getattr(summary, "verify_stats", {}) or {}
         v_enabled = v_stats.get("enabled", True)
-        v_judge = v_stats.get("judge_model", "deepseek-v4-flash")
+        v_raw_judge = v_stats.get("judge_model", "deepseek-v4-flash")
+        v_judge_disp = "Laya (本地模型)" if v_raw_judge.lower() == "laya" else v_raw_judge
         v_pass_rate = v_stats.get("pass_rate_pct", 100.0)
         v_esc = v_stats.get("escalated", 0)
         v_exempt = v_stats.get("exempt", 0)
@@ -580,13 +581,13 @@ class ReportGenerator:
       background: #f8fafc;
       color: var(--text-muted);
       font-weight: 600;
-      padding: 12px 14px;
+      padding: 10px 12px;
       border-bottom: 1px solid var(--card-border);
       white-space: nowrap;
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     }}
     td {{
-      padding: 12px 14px;
+      padding: 10px 12px;
       border-bottom: 1px solid #f1f5f9;
       color: var(--text-main);
     }}
@@ -594,7 +595,7 @@ class ReportGenerator:
       background: #f8fafc;
     }}
     .prompt-cell {{
-      max-width: 320px;
+      max-width: 260px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -1257,9 +1258,15 @@ class ReportGenerator:
       </div>
 
       <div class="kpi-card">
-        <div class="kpi-label"><span>🎯 质检验收概况</span><span>{v_judge}</span></div>
-        <div class="kpi-value" style="color: {'#059669' if v_enabled else '#64748b'};">{f'{v_pass_rate}%' if v_enabled else '未启用'}</div>
-        <div class="kpi-sub">{'初验合格 • 升级: ' + str(v_esc) + ' 例 | 免检: ' + str(v_exempt) + ' 例 (' + str(v_avg_lat) + 'ms)' if v_enabled else '策略未启用质检保护'}</div>
+        <div class="kpi-label">
+          <span>🎯 质检验收概况</span>
+          <span class="badge" style="background:#e0f2fe; color:#0284c7; border:1px solid #bae6fd; font-size:11px; padding:1px 6px; font-weight:600;">🤖 裁决官: {v_judge_disp}</span>
+        </div>
+        <div class="kpi-value" style="color: {'#059669' if v_enabled else '#64748b'};">
+          {f'{v_pass_rate}%' if v_enabled else '未启用'}
+          <span style="font-size: 14px; font-weight: normal; color: var(--text-muted); margin-left: 4px;">初验合格率</span>
+        </div>
+        <div class="kpi-sub">{'初验合格 • 升级: ' + str(v_esc) + ' 例 | 旗舰免检: ' + str(v_exempt) + ' 例 (均耗: ' + str(v_avg_lat) + 'ms)' if v_enabled else '策略未启用质检保护'}</div>
       </div>
     </section>
 
@@ -1421,22 +1428,20 @@ class ReportGenerator:
         <table id="casesTable">
           <thead>
             <tr>
-              <th>ID</th>
-              <th>分类</th>
-              <th>难度</th>
+              <th style="width: 75px;">ID</th>
+              <th style="width: 125px;">分类 / 难度</th>
               <th>Prompt 摘要</th>
-              <th>Laya 分类 (难度/耗时)</th>
-              <th>选定路由模型</th>
-              <th>质检验收</th>
-              <th>路由成本 ({cur_sym})</th>
-              <th>节省幅度</th>
-              <th>决策状态</th>
-              <th>全链路追踪 (Trace)</th>
+              <th style="width: 145px;">Laya 决策 (难度/耗时)</th>
+              <th style="width: 135px;">选定路由模型</th>
+              <th style="width: 130px;">质检验收</th>
+              <th style="width: 125px;">路由支出 (节省)</th>
+              <th style="width: 175px;">决策与全链路</th>
             </tr>
           </thead>
           <tbody id="tableBody">
             <!-- Populated by JS -->
           </tbody>
+        </table>
       </div>
 
       <!-- Sticky Floating Horizontal Scrollbar -->
@@ -1667,30 +1672,43 @@ class ReportGenerator:
           const scoreStr = r.verify_score !== undefined && r.verify_score !== null ? r.verify_score.toFixed(2) : "不足";
           vBadge = `<span class="badge" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a; font-size:11px; padding:2px 8px;" title="${{r.verify_failure_reason || '质量未达标'}} | 评分: ${{scoreStr}}">🔄 未达标升级 (${{scoreStr}})</span>`;
         }} else if (vStatus === "exempt") {{
-          vBadge = `<span class="badge" style="background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; font-size:11px; padding:2px 8px;" title="高阶旗舰模型免检直达">⚡ 旗舰免检</span>`;
+          vBadge = `<span class="badge" style="background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; font-size:11px; padding:2px 8px;" title="高阶旗舰商业模型免检直达">⚡ 旗舰免检</span>`;
+        }} else if (vStatus === "unverified") {{
+          vBadge = `<span class="badge" style="background:#f8fafc; color:#64748b; border:1px solid #e2e8f0; font-size:11px; padding:2px 8px;" title="${{r.verify_failure_reason || '未满足质检准入条件'}}">⏭ 免质检直达</span>`;
+        }} else if (vStatus === "error") {{
+          vBadge = `<span class="badge" style="background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; font-size:11px; padding:2px 8px;" title="${{r.verify_failure_reason || '质检异常'}}">⚠ 裁决异常</span>`;
         }} else {{
           vBadge = `<span class="badge" style="background:#f8fafc; color:#94a3b8; font-size:11px; padding:2px 8px;">— 未启用</span>`;
         }}
 
+        const costStr = r.cost_router > 0 ? '{cur_sym}' + r.cost_router.toFixed(5) : '{cur_sym}0.00 (免费)';
+        const savingStr = r.savings_pct > 0 ? '+' + r.savings_pct + '% 节省' : '0% 节省';
+
         tr.innerHTML = `
           <td style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);">${{r.case_id}}</td>
-          <td><span class="tag" style="background: #f1f5f9; color: var(--text-muted); border: 1px solid #e2e8f0;">${{r.category}}</span></td>
-          <td><span class="tag ${{diffClass}}">${{r.difficulty_tag}}</span></td>
+          <td>
+            <div style="display:flex; flex-direction:column; gap:3px; align-items:flex-start;">
+              <span class="tag" style="background: #f1f5f9; color: var(--text-muted); border: 1px solid #e2e8f0; font-size: 10.5px;">${{r.category}}</span>
+              <span class="tag ${{diffClass}}" style="font-size: 10.5px;">${{r.difficulty_tag}}</span>
+            </div>
+          </td>
           <td class="prompt-cell" title="${{r.prompt}}">${{r.prompt}}</td>
           <td>
-            <span style="font-family: var(--font-mono); font-size: 12px; color: var(--text-main);">diff: ${{r.detected_difficulty}}</span>
-            <span style="color: var(--text-muted); font-size: 11px; margin-left: 4px;">(${{r.classifier_latency_ms}}ms)</span>
+            <div style="font-family: var(--font-mono); font-size: 12px; color: var(--text-main);">diff: ${{r.detected_difficulty}}</div>
+            <div style="color: var(--text-muted); font-size: 11px;">${{r.classifier_latency_ms}}ms</div>
           </td>
           <td><span class="model-badge">${{r.chosen_model}}</span></td>
           <td>${{vBadge}}</td>
-          <td style="font-family: var(--font-mono); color: var(--text-main);">${{r.cost_router > 0 ? '{cur_sym}'+r.cost_router.toFixed(5) : '{cur_sym}0.00 (免费)'}}</td>
-          <td class="saving-cell">${{r.savings_pct > 0 ? '+'+r.savings_pct+'%' : '0%'}}</td>
-          <td>${{statusBadge}}</td>
+          <td>
+            <div style="font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--text-main);">${{costStr}}</div>
+            <div class="saving-cell" style="font-size: 11px;">${{savingStr}}</div>
+          </td>
           <td style="white-space: nowrap;">
             <div style="display:flex; align-items:center; gap:6px;">
+              ${{statusBadge}}
               ${{hopBadge}}
               <button type="button" class="trace-btn" onclick="toggleTraceRow('${{r.case_id}}', this)">
-                <span>🔍 展开链路 ▾</span>
+                <span>🔍 链路 ▾</span>
               </button>
             </div>
           </td>
