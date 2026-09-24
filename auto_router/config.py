@@ -255,6 +255,7 @@ def build_model(entry: dict, providers: dict[str, Provider],
             if entry.get("timeout_seconds") is not None
             else (float(entry["timeout_s"]) if entry.get("timeout_s") is not None else None)
         ),
+        enabled=bool(entry.get("enabled", True)),
     )
 
 
@@ -302,7 +303,7 @@ def load_config(path: str | Path | None = None, *, bench: BenchmarkClient | None
     if use_bench and bench is None:
         bench = BenchmarkClient(offline=os.environ.get("AUTO_ROUTER_BENCH_OFFLINE") == "1")
     models = [build_model(m, providers, bench if use_bench else None) for m in raw.get("models") or []]
-    return RouterConfig(providers=providers, catalog=Catalog(models),
+    return RouterConfig(providers=providers, catalog=Catalog([m for m in models if m.enabled]),
                         subscriptions=raw.get("subscriptions") or {},
                         policy=raw.get("policy") or {}, raw=raw)
 

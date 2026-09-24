@@ -39,7 +39,8 @@
       },
       "context_tokens": 65536,
       "tools": true,
-      "vision": true
+      "vision": true,
+      "enabled": true
     },
     {
       "name": "deepseek-v4-pro",
@@ -64,7 +65,8 @@
       },
       "context_tokens": 128000,
       "tools": true,
-      "vision": true
+      "vision": true,
+      "enabled": true
     },
     {
       "name": "gemma-4-e4b-it",
@@ -90,7 +92,8 @@
       "context_tokens": 32768,
       "tools": true,
       "vision": false,
-      "timeout_seconds": 180
+      "timeout_seconds": 180,
+      "enabled": true
     }
   ],
   "policy": {
