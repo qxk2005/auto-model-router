@@ -197,11 +197,10 @@ class VerifyPolicy:
         # the answer depends on is a property of the *question*, true of every
         # route; reporting "this route is too strong to grade" instead would
         # hide the more interesting half of the gate behind an accident of
-        # which route happened to answer.
-        if category in self.skip_categories or needs_long_context:
+        if category in self.skip_categories:
             return False, ("the judge cannot see the document this answer depends on "
                            f"(category {category})")
-        if request_chars > self.max_request_chars:
+        if (needs_long_context or request_chars > self.max_request_chars) and request_chars > self.max_request_chars:
             return False, (f"request is {request_chars} characters; beyond "
                            f"{self.max_request_chars} the judge would grade what it cannot read")
         if not self.tier_ok(model, category, evidence_discount):
