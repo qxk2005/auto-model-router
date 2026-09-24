@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <link rel="stylesheet" href="/web/style.css?v=20260924_provider_edit_v1">
+  <link rel="stylesheet" href="/web/style.css?v=20260924_nav_titles_v1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -30,23 +30,23 @@
       <nav class="nav-menu">
         <button class="nav-item active" id="navMonitor" onclick="switchTab('monitor')">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
-          <span>网关状态与实时监控</span>
+          <span>网关概览</span>
         </button>
         <button class="nav-item" id="navModels" onclick="switchTab('models')">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-          <span>提供商与模型管理</span>
-        </button>
-        <button class="nav-item" id="navPolicy" onclick="switchTab('policy')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
-          <span>Router 策略与 Laya 参数</span>
+          <span>供应商与模型</span>
         </button>
         <button class="nav-item" id="navBenchmark" onclick="switchTab('benchmark')">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-          <span>测试中心与评估报告</span>
+          <span>测试中心</span>
         </button>
         <button class="nav-item" id="navLeaderboard" onclick="switchTab('leaderboard')">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path></svg>
-          <span>大模型权威评分查询</span>
+          <span>模型天梯榜</span>
+        </button>
+        <button class="nav-item" id="navPolicy" onclick="switchTab('policy')">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+          <span>策略与设置</span>
         </button>
       </nav>
 
@@ -70,7 +70,7 @@
       <!-- Top Navigation Bar -->
       <header class="topbar">
         <div class="page-title">
-          <h1 id="pageTitleText">网关状态与实时监控</h1>
+          <h1 id="pageTitleText">网关概览</h1>
           <p id="pageSubtitleText">监测硬件加速本地 Laya 决策引擎与网关实时运行指标</p>
         </div>
         <div class="topbar-actions">
@@ -1063,6 +1063,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=20260924_provider_edit_v1"></script>
+  <script src="/web/app.js?v=20260924_nav_titles_v1"></script>
 </body>
 </html>

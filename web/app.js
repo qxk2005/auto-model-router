@@ -72,11 +72,11 @@ function switchTab(tabId) {
   }
 
   const titles = {
-    monitor: ["网关状态与实时监控", "监测硬件加速本地 Laya 决策引擎与网关实时运行指标"],
-    models: ["提供商与模型管理", "配置 OpenAI 兼容提供商矩阵及各级模型 Token 计费单价与可用性测试"],
-    policy: ["Router 策略与 Laya 参数", "微调经济成本模型风险权重、缓存生命周期与 Laya 运行设备"],
-    benchmark: ["测试中心与评估报告", "运行典型降本测试集，测算智能分流降本幅度并导出自包含 HTML 报告"],
-    leaderboard: ["大模型权威评分查询", "基于 LMSYS Chatbot Arena 权威评测集查询多学科基准，横向对比当前路由候选模型"],
+    monitor: ["网关概览", "监测硬件加速本地 Laya 决策引擎与网关实时运行指标"],
+    models: ["供应商与模型", "配置 OpenAI 兼容供应商矩阵及各级模型 Token 计费单价与可用性测试"],
+    benchmark: ["测试中心", "运行典型降本测试集，测算智能分流降本幅度并导出自包含 HTML 报告"],
+    leaderboard: ["模型天梯榜", "基于 LMSYS Chatbot Arena 权威评测集查询多学科基准，横向对比当前路由候选模型"],
+    policy: ["策略与设置", "微调经济成本模型风险权重、缓存生命周期与 Laya 运行设备"],
   };
   if (titles[tabId]) {
     document.getElementById("pageTitleText").textContent = titles[tabId][0];
