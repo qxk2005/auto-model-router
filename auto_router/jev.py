@@ -456,12 +456,16 @@ def classify(request: str, context: str = "", *, api_key: str | None = None,
         return FALLBACK
 
 
-class LocalLayaClassifier:
-    """Lazy CPU-only Laya classifier with the same result shape as hosted Jev.
+_GLOBAL_PREDICT_LOCK = threading.Lock()
+_GLOBAL_LOAD_LOCK = threading.Lock()
+_GLOBAL_LOADED_AGENTS: dict[tuple[str, str, str | None], tuple[Any, str]] = {}
 
-    The optional dependency is imported only on the first request.  The model
-    weights are then fetched by Hugging Face once and cached in the user's
-    normal model cache.  Import, download, and inference failures degrade to
+
+class LocalLayaClassifier:
+    """Local text classifier powered by the open-weight Laya model.
+
+    Replaces the remote TypeSafe/Jev classifier API with local inference,
+    completely offline-capable. If loading or inference fails, falls back to
     ``FALLBACK`` just like a hosted classifier outage does.
     """
 
@@ -478,8 +482,8 @@ class LocalLayaClassifier:
         self.subfolder = subfolder
         self.actual_device = "unknown"
         self._agent = None
-        self._load_lock = threading.Lock()
-        self._predict_lock = threading.Lock()
+        self._load_lock = _GLOBAL_LOAD_LOCK
+        self._predict_lock = _GLOBAL_PREDICT_LOCK
 
     def _resolve_device(self) -> str:
         import torch
@@ -505,35 +509,40 @@ class LocalLayaClassifier:
 
     def _load(self):
         if self._agent is None:
-            with self._load_lock:
-                if self._agent is None:
-                    import os
-                    os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
-                    import laya
-                    import torch
-                    dev = self._resolve_device()
-                    if dev == "cpu":
-                        torch.set_num_threads(self.threads)
-                    
-                    sub = self.subfolder
-                    if "multilingual" in self.model:
-                        sub = "multilingual"
-                        base_model = "convaiinnovations/laya"
-                    else:
-                        base_model = self.model
+            dev = self._resolve_device()
+            sub = self.subfolder
+            if "multilingual" in self.model:
+                sub = "multilingual"
+                base_model = "convaiinnovations/laya"
+            else:
+                base_model = self.model
+            
+            cache_key = (base_model, dev, sub)
+            with _GLOBAL_LOAD_LOCK:
+                if cache_key in _GLOBAL_LOADED_AGENTS:
+                    self._agent, self.actual_device = _GLOBAL_LOADED_AGENTS[cache_key]
+                    return self._agent
 
-                    try:
-                        self._agent = laya.load(base_model, device=dev, subfolder=sub)
-                        self.actual_device = str(getattr(self._agent, "device", dev))
-                    except (getattr(torch.cuda, "OutOfMemoryError", RuntimeError), RuntimeError) as e:
-                        if dev == "cuda":
-                            logger.warning("Laya CUDA load failed with OOM/error (%s); falling back to CPU", e)
-                            dev = "cpu"
-                            torch.set_num_threads(self.threads)
-                            self._agent = laya.load(base_model, device="cpu", subfolder=sub)
-                            self.actual_device = "cpu"
-                        else:
-                            raise
+                import os
+                os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+                import laya
+                import torch
+                if dev == "cpu":
+                    torch.set_num_threads(self.threads)
+
+                try:
+                    self._agent = laya.load(base_model, device=dev, subfolder=sub)
+                    self.actual_device = str(getattr(self._agent, "device", dev))
+                except (getattr(torch.cuda, "OutOfMemoryError", RuntimeError), RuntimeError) as e:
+                    if dev == "cuda":
+                        logger.warning("Laya CUDA load failed with OOM/error (%s); falling back to CPU", e)
+                        dev = "cpu"
+                        torch.set_num_threads(self.threads)
+                        self._agent = laya.load(base_model, device="cpu", subfolder=sub)
+                        self.actual_device = "cpu"
+                    else:
+                        raise
+                _GLOBAL_LOADED_AGENTS[cache_key] = (self._agent, self.actual_device)
         return self._agent
 
     def warmup(self):
@@ -550,7 +559,7 @@ class LocalLayaClassifier:
             state = {"request": scrub(request, REQUEST_CHARS), "response": scrub(response, RESPONSE_CHARS)}
             questions = verify_questions(category) if category else JUDGE_QUESTION
             agent = self._load()
-            with self._predict_lock:
+            with _GLOBAL_PREDICT_LOCK:
                 payload = agent.predict(state, questions)
                 if getattr(self, "actual_device", "") == "mps":
                     try:
@@ -581,7 +590,7 @@ class LocalLayaClassifier:
             state = {"request": scrub(request, REQUEST_CHARS),
                      "context": scrub(context, CONTEXT_CHARS) or "(new conversation)"}
             agent = self._load()
-            with self._predict_lock:
+            with _GLOBAL_PREDICT_LOCK:
                 payload = agent.predict(state, QUESTIONS)
                 if getattr(self, "actual_device", "") == "mps":
                     try:

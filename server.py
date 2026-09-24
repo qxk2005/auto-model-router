@@ -211,7 +211,7 @@ def _find_default_llm_judge(config):
     return None
 
 
-def build_judge(config, raw_policy: dict):
+def build_judge(config, raw_policy: dict, classifier=None):
     verify_cfg = raw_policy.get("verify") or {}
     if not verify_cfg.get("enabled", False):
         return None
@@ -220,7 +220,7 @@ def build_judge(config, raw_policy: dict):
 
     # 1. Local Laya engine
     if judge_choice.lower() in ("laya", "local"):
-        clf = getattr(ar_server.router, "classifier", None) or jev.classifier_from_config(raw_policy)
+        clf = classifier or getattr(ar_server.router, "classifier", None) or jev.classifier_from_config(raw_policy)
         if hasattr(clf, "judge"):
             def safe_laya_judge(req: str, ans: str, category: str = "general") -> Judgement:
                 try:
@@ -245,7 +245,7 @@ def build_judge(config, raw_policy: dict):
             return create_llm_judge(target_model, provider)
 
     # 3. Fallback to Laya local engine if configured model was disabled or missing
-    clf = getattr(ar_server.router, "classifier", None) or jev.classifier_from_config(raw_policy)
+    clf = classifier or getattr(ar_server.router, "classifier", None) or jev.classifier_from_config(raw_policy)
     if hasattr(clf, "judge"):
         log.warning("Judge model '%s' is disabled or missing; safely falling back to Laya local engine", judge_choice)
         def fallback_laya_judge(req: str, ans: str, category: str = "general") -> Judgement:
@@ -272,8 +272,13 @@ def reload_router_system():
     raw = get_current_raw_config()
     loaded = for_http(load_config())
     ar_server.config = loaded
-    judge_fn = build_judge(loaded, raw.get("policy", {}))
-    ar_server.router = Router(loaded, judge=judge_fn)
+    
+    # 优先复用现有本地分类器实例，避免重复占用 GPU 显存
+    existing_clf = getattr(ar_server.router, "classifier", None)
+    clf = existing_clf or jev.classifier_from_config(raw.get("policy", {}))
+    
+    judge_fn = build_judge(loaded, raw.get("policy", {}), classifier=clf)
+    ar_server.router = Router(loaded, classifier=clf, judge=judge_fn)
     log.info("Router system reloaded with %d models, %d providers, judge=%s, verify.enabled=%s",
              len(loaded.catalog.models), len(loaded.providers),
              getattr(judge_fn, "__name__", str(judge_fn)),
@@ -292,7 +297,12 @@ async def on_startup():
             target_dev = clf._resolve_device() if hasattr(clf, "_resolve_device") else "auto"
             log.info("Pre-warming local Laya classifier on %s in background...", target_dev)
             loop = asyncio.get_event_loop()
-            asyncio.create_task(loop.run_in_executor(None, clf.warmup))
+            async def _bg_warmup():
+                try:
+                    await loop.run_in_executor(None, clf.warmup)
+                except Exception as ex:
+                    log.warning("Warmup failed: %s", ex)
+            asyncio.create_task(_bg_warmup())
     except Exception as exc:
         log.warning("Warmup warning: %s", exc)
 
