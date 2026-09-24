@@ -1863,6 +1863,20 @@ function saveModelFromModal() {
 
   if (!currentConfig.models) currentConfig.models = [];
 
+  const prof = (currentArenaMatchData && currentArenaMatchData.model)
+    ? extractModelNormalizedCapabilities(currentArenaMatchData.model)
+    : null;
+
+  const cCoding = Math.round(capCoding * 100);
+  const cMath = Math.round(capMath * 100);
+  const cReasoning = Math.round(capReasoning * 100);
+  const cGeneral = Math.round(capGeneral * 100);
+  const cAgentic = prof ? Math.round(prof.agentic * 100) : (isFree ? 70 : cReasoning);
+  const cToolUse = prof ? Math.max(cAgentic, cCoding) : (isFree ? 72 : Math.max(cReasoning, cCoding));
+  const cKnowledge = prof ? Math.round(prof.general * 100) : (isFree ? 75 : cGeneral);
+  const cSummarisation = prof ? Math.round(prof.general * 100) : (isFree ? 80 : cGeneral);
+  const hasVision = prof ? (prof.vision >= 0.70) : false;
+
   if (editIdx >= 0 && editIdx < currentConfig.models.length) {
     // Edit existing model: preserve immutable attributes (provider, upstream_id, free)
     const target = currentConfig.models[editIdx];
@@ -1876,11 +1890,18 @@ function saveModelFromModal() {
     };
     target.capability = {
       ...(target.capability || {}),
-      coding: Math.round(capCoding * 100),
-      math: Math.round(capMath * 100),
-      reasoning: Math.round(capReasoning * 100),
-      general: Math.round(capGeneral * 100),
+      coding: cCoding,
+      math: cMath,
+      reasoning: cReasoning,
+      general: cGeneral,
+      agentic: cAgentic,
+      tool_use: cToolUse,
+      knowledge: cKnowledge,
+      summarisation: cSummarisation,
     };
+    if (hasVision) {
+      target.vision = true;
+    }
     if (timeoutSec !== null) {
       target.timeout_seconds = timeoutSec;
     } else {
@@ -1903,18 +1924,18 @@ function saveModelFromModal() {
         cache_write: cachePrice * 2,
       },
       capability: {
-        coding: Math.round(capCoding * 100),
-        math: Math.round(capMath * 100),
-        reasoning: Math.round(capReasoning * 100),
-        general: Math.round(capGeneral * 100),
-        knowledge: isFree ? 75 : 90,
-        summarisation: isFree ? 80 : 90,
-        agentic: isFree ? 70 : 85,
-        tool_use: isFree ? 72 : 88,
+        coding: cCoding,
+        math: cMath,
+        reasoning: cReasoning,
+        general: cGeneral,
+        knowledge: cKnowledge,
+        summarisation: cSummarisation,
+        agentic: cAgentic,
+        tool_use: cToolUse,
       },
       context_tokens: contextTokens,
       tools: true,
-      vision: false,
+      vision: hasVision,
       ...(timeoutSec !== null ? { timeout_seconds: timeoutSec } : {}),
     });
     savePolicyConfig();
@@ -2061,10 +2082,54 @@ function switchModelModalTab(tabKey) {
 let currentArenaMatchData = null;
 let cachedLeaderboardList = [];
 
+function normalizeEloScore(elo, minElo = 1000.0, maxElo = 1850.0) {
+  if (elo === null || elo === undefined || isNaN(elo)) return 0.85;
+  const val = (parseFloat(elo) - minElo) / (maxElo - minElo);
+  const scaled = 0.50 + val * 0.49;
+  return Math.max(0.40, Math.min(0.99, scaled));
+}
+
+function extractModelNormalizedCapabilities(model) {
+  if (!model) return { coding: 0.85, math: 0.85, reasoning: 0.85, general: 0.85, agentic: 0.85, vision: 0.50 };
+  const prof = model.normalized_profile || {};
+  const eloOverall = parseFloat(model.rating_overall) || 1200;
+  const eloCoding = parseFloat(model.rating_coding) || eloOverall;
+  const eloMath = parseFloat(model.rating_math) || eloOverall;
+  const eloHard = parseFloat(model.rating_hard) || eloOverall;
+
+  const coding = prof.coding !== undefined ? parseFloat(prof.coding) : normalizeEloScore(eloCoding);
+  const math = prof.math !== undefined ? parseFloat(prof.math) : normalizeEloScore(eloMath);
+  const reasoning = prof.reasoning !== undefined ? parseFloat(prof.reasoning) : normalizeEloScore(eloHard);
+  const general = prof.general !== undefined ? parseFloat(prof.general) : normalizeEloScore(eloOverall);
+  const agentic = prof.agentic !== undefined ? parseFloat(prof.agentic) : reasoning;
+  const vision = prof.vision !== undefined ? parseFloat(prof.vision) : 0.50;
+
+  return { coding, math, reasoning, general, agentic, vision };
+}
+
+async function ensureLeaderboardListLoaded() {
+  if (cachedLeaderboardList && cachedLeaderboardList.length > 0) {
+    return cachedLeaderboardList;
+  }
+  try {
+    const res = await fetch("/api/leaderboard?open_source_only=false&candidate_only=false");
+    if (res.ok) {
+      const json = await res.json();
+      cachedLeaderboardList = json.data || [];
+    }
+  } catch (err) {
+    console.warn("Preloading leaderboard failed:", err);
+  }
+  return cachedLeaderboardList;
+}
+
 async function matchAndRenderArenaCard(query) {
   if (!query || !query.trim()) return;
   const card = document.getElementById("arenaMatchCard");
   if (!card) return;
+
+  // Preload leaderboard in background
+  ensureLeaderboardListLoaded();
 
   try {
     const res = await fetch(`/api/leaderboard/match?query=${encodeURIComponent(query.trim())}`);
@@ -2073,13 +2138,26 @@ async function matchAndRenderArenaCard(query) {
     if (!data.matched || !data.model) return;
 
     currentArenaMatchData = data;
+
+    // Reset confidence badge
+    const confTag = document.getElementById("arenaMatchConfidence");
+    if (confTag) {
+      confTag.textContent = "已自动匹配";
+      confTag.style.background = "";
+      confTag.style.color = "";
+      confTag.style.borderColor = "";
+    }
+
+    // Ensure leaderboard data is available to populate all candidates & models
+    await ensureLeaderboardListLoaded();
+
     renderArenaCard(data.model, data.candidates);
   } catch (err) {
     console.warn("Failed to match arena model:", err);
   }
 }
 
-function renderArenaCard(model, candidates = []) {
+function renderArenaCardMetrics(model) {
   if (!model) return;
   const nameEl = document.getElementById("arenaMatchedModelName");
   const orgEl = document.getElementById("arenaMatchedOrg");
@@ -2095,75 +2173,146 @@ function renderArenaCard(model, candidates = []) {
   const nReaEl = document.getElementById("arenaNormReasoning");
   const nGenEl = document.getElementById("arenaNormGeneral");
 
-  nameEl.textContent = model.display_name || model.model_name;
-  orgEl.textContent = model.organization || "Unknown";
-  licEl.textContent = model.license || "Proprietary";
-  const isOpen = model.license && !["proprietary", "closed"].includes(model.license.toLowerCase());
-  licEl.className = `arena-license-tag ${isOpen ? "open" : ""}`;
+  if (nameEl) nameEl.textContent = model.display_name || model.model_name;
+  if (orgEl) orgEl.textContent = model.organization || "Unknown";
+  if (licEl) {
+    licEl.textContent = model.license || "Proprietary";
+    const isOpen = model.license && !["proprietary", "closed"].includes(model.license.toLowerCase());
+    licEl.className = `arena-license-tag ${isOpen ? "open" : ""}`;
+  }
 
-  eloEl.textContent = Math.round(model.rating_overall || 1200);
-  codEl.textContent = Math.round(model.rating_coding || model.rating_overall || 1200);
-  matEl.textContent = Math.round(model.rating_math || model.rating_overall || 1200);
-  reaEl.textContent = Math.round(model.rating_hard || model.rating_overall || 1200);
-  genEl.textContent = Math.round(model.rating_overall || 1200);
+  const elo = Math.round(model.rating_overall || 1200);
+  if (eloEl) eloEl.textContent = elo;
+  if (codEl) codEl.textContent = Math.round(model.rating_coding || model.rating_overall || 1200);
+  if (matEl) matEl.textContent = Math.round(model.rating_math || model.rating_overall || 1200);
+  if (reaEl) reaEl.textContent = Math.round(model.rating_hard || model.rating_overall || 1200);
+  if (genEl) genEl.textContent = elo;
 
-  const prof = model.normalized_profile || {};
-  nCodEl.textContent = (prof.coding || 0.85).toFixed(2);
-  nMatEl.textContent = (prof.math || 0.85).toFixed(2);
-  nReaEl.textContent = (prof.reasoning || 0.85).toFixed(2);
-  nGenEl.textContent = (prof.general || 0.85).toFixed(2);
+  const caps = extractModelNormalizedCapabilities(model);
+  if (nCodEl) nCodEl.textContent = caps.coding.toFixed(2);
+  if (nMatEl) nMatEl.textContent = caps.math.toFixed(2);
+  if (nReaEl) nReaEl.textContent = caps.reasoning.toFixed(2);
+  if (nGenEl) nGenEl.textContent = caps.general.toFixed(2);
+}
 
-  // Populate manual switcher dropdown
+function populateArenaManualSelect(selectedModel, candidates = []) {
   const sel = document.getElementById("arenaManualSelect");
-  if (sel) {
-    sel.innerHTML = "";
-    // Option for currently matched
-    const optSelf = document.createElement("option");
-    optSelf.value = model.model_name;
-    optSelf.textContent = `⭐ ${model.display_name || model.model_name} (Elo ${Math.round(model.rating_overall || 1200)}) - 推荐匹配`;
-    optSelf.selected = true;
-    sel.appendChild(optSelf);
+  if (!sel) return;
+  sel.innerHTML = "";
 
-    // Populate other candidates or full list
-    const candidateList = (candidates && candidates.length > 0) ? candidates : cachedLeaderboardList;
-    candidateList.forEach(c => {
-      if (c.model_name !== model.model_name) {
+  const candidateIds = new Set();
+
+  // Group 1: 🎯 智能匹配候选（推荐）
+  if (candidates && candidates.length > 0) {
+    const grpCandidates = document.createElement("optgroup");
+    grpCandidates.label = "🎯 智能匹配候选（推荐）";
+
+    candidates.forEach((c, idx) => {
+      candidateIds.add(c.model_name);
+      const opt = document.createElement("option");
+      opt.value = c.model_name;
+      const isTop = (idx === 0);
+      opt.textContent = `${isTop ? "⭐ " : ""}${c.display_name || c.model_name} (Elo ${Math.round(c.rating_overall || 1200)})${isTop ? " - 推荐匹配" : ""}`;
+      if (selectedModel && c.model_name === selectedModel.model_name) {
+        opt.selected = true;
+      }
+      grpCandidates.appendChild(opt);
+    });
+    sel.appendChild(grpCandidates);
+  }
+
+  // Group 2: 📚 全量权威榜单模型（按 Elo 降序）
+  if (cachedLeaderboardList && cachedLeaderboardList.length > 0) {
+    const grpAll = document.createElement("optgroup");
+    grpAll.label = "📚 全量权威榜单模型（按 Elo 降序）";
+
+    cachedLeaderboardList.forEach(m => {
+      if (!candidateIds.has(m.model_name)) {
         const opt = document.createElement("option");
-        opt.value = c.model_name;
-        opt.textContent = `${c.display_name || c.model_name} (Elo ${Math.round(c.rating_overall || 1200)})`;
-        sel.appendChild(opt);
+        opt.value = m.model_name;
+        opt.textContent = `${m.display_name || m.model_name} (Elo ${Math.round(m.rating_overall || 1200)})`;
+        if (selectedModel && m.model_name === selectedModel.model_name) {
+          opt.selected = true;
+        }
+        grpAll.appendChild(opt);
       }
     });
+    sel.appendChild(grpAll);
+  }
+
+  if (selectedModel) {
+    sel.value = selectedModel.model_name;
   }
 }
 
-function applyArenaScoresToInputs() {
+function renderArenaCard(model, candidates = []) {
+  if (!model) return;
+  renderArenaCardMetrics(model);
+  populateArenaManualSelect(model, candidates);
+}
+
+function applyArenaScoresToInputs(showSuccessToast = true) {
   if (!currentArenaMatchData || !currentArenaMatchData.model) {
-    showToast("暂无可采纳的权威评分数据", "warning");
+    if (showSuccessToast) showToast("暂无可采纳的权威评分数据", "warning");
     return;
   }
-  const prof = currentArenaMatchData.model.normalized_profile || currentArenaMatchData.normalized_capabilities || {};
-  document.getElementById("capCodingInput").value = (prof.coding || 0.85).toFixed(2);
-  document.getElementById("capMathInput").value = (prof.math || 0.85).toFixed(2);
-  document.getElementById("capReasoningInput").value = (prof.reasoning || 0.85).toFixed(2);
-  document.getElementById("capGeneralInput").value = (prof.general || 0.85).toFixed(2);
+  const caps = extractModelNormalizedCapabilities(currentArenaMatchData.model);
+  const codingEl = document.getElementById("capCodingInput");
+  const mathEl = document.getElementById("capMathInput");
+  const reaEl = document.getElementById("capReasoningInput");
+  const genEl = document.getElementById("capGeneralInput");
+
+  if (codingEl) codingEl.value = caps.coding.toFixed(2);
+  if (mathEl) mathEl.value = caps.math.toFixed(2);
+  if (reaEl) reaEl.value = caps.reasoning.toFixed(2);
+  if (genEl) genEl.value = caps.general.toFixed(2);
+
+  [codingEl, mathEl, reaEl, genEl].forEach(el => {
+    if (el) {
+      el.classList.remove("arena-synced-highlight");
+      void el.offsetWidth;
+      el.classList.add("arena-synced-highlight");
+    }
+  });
 
   const mName = currentArenaMatchData.model.display_name || currentArenaMatchData.model.model_name;
-  showToast(`已成功将权威模型 [${mName}] 的四维评分回填至表单！`, "success");
+  if (showSuccessToast) {
+    showToast(`已成功将权威模型 [${mName}] 的四维评分回填至表单！`, "success");
+  }
 }
 
 function onArenaManualSelectChanged() {
   const sel = document.getElementById("arenaManualSelect");
+  if (!sel) return;
   const targetName = sel.value;
-  let target = cachedLeaderboardList.find(m => m.model_name === targetName);
-  if (!target && currentArenaMatchData && currentArenaMatchData.candidates) {
-    target = currentArenaMatchData.candidates.find(m => m.model_name === targetName);
+
+  let target = (currentArenaMatchData && currentArenaMatchData.candidates)
+    ? currentArenaMatchData.candidates.find(m => m.model_name === targetName)
+    : null;
+  if (!target && cachedLeaderboardList && cachedLeaderboardList.length > 0) {
+    target = cachedLeaderboardList.find(m => m.model_name === targetName);
   }
+
   if (target) {
     currentArenaMatchData.model = target;
     currentArenaMatchData.normalized_capabilities = target.normalized_profile || {};
-    renderArenaCard(target, currentArenaMatchData.candidates);
-    showToast(`已换选权威参考模型: ${target.display_name || target.model_name}`, "info");
+
+    // 1. Update preview card metrics (without destroying the select dropdown DOM)
+    renderArenaCardMetrics(target);
+
+    // 2. Update confidence tag badge to show manual selection
+    const confTag = document.getElementById("arenaMatchConfidence");
+    if (confTag) {
+      confTag.textContent = "已换选参考";
+      confTag.style.background = "var(--primary-subtle, rgba(59, 130, 246, 0.15))";
+      confTag.style.color = "var(--primary, #3b82f6)";
+      confTag.style.borderColor = "rgba(59, 130, 246, 0.3)";
+    }
+
+    // 3. Real-time automatic synchronization of capability inputs below!
+    applyArenaScoresToInputs(false);
+
+    showToast(`已换选权威模型 [${target.display_name || target.model_name}]，能力画像评分已实时同步（可按需微调）`, "success");
   }
 }
 

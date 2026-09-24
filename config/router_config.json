@@ -84,7 +84,8 @@
         "knowledge": 70,
         "summarisation": 70,
         "agentic": 65,
-        "tool_use": 68
+        "tool_use": 68,
+        "reasoning": 85
       },
       "context_tokens": 32768,
       "tools": true,
