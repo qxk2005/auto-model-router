@@ -20,6 +20,7 @@ from typing import Any, Callable
 import httpx
 
 from auto_router.catalog import Catalog, ModelInfo
+from auto_router.config import normalize_provider_url
 from auto_router.jev import Classification
 from auto_router.economics import turn_cost
 from auto_router.policies import Conversation, Context, TurnRequest, Choice
@@ -681,7 +682,7 @@ class BenchmarkEvaluator:
                 async def call_model_api(target_m, target_p, max_tok):
                     if not target_p or not target_p.base_url:
                         return False, 0.0, "", 0, 0, f"未配置提供商或端点 (provider: {getattr(target_m, 'provider', 'none')})"
-                    base_u = (getattr(target_p, "resolved_base_url", None) or target_p.base_url or "").strip().rstrip("/")
+                    base_u = normalize_provider_url(getattr(target_p, "resolved_base_url", None) or target_p.base_url or "", api=getattr(target_p, "api", "openai"))
                     endpoint = base_u if base_u.endswith("/chat/completions") else f"{base_u}/chat/completions"
                     hdrs = {"Content-Type": "application/json"}
                     if target_p.api_key:
@@ -845,14 +846,36 @@ class BenchmarkEvaluator:
                                     "detail": f"容灾转发备选模型执行成功",
                                     "snippet": (fb_txt[:140] + "...") if len(fb_txt) > 140 else fb_txt,
                                 })
+                            else:
+                                raw_stages.append({
+                                    "stage_index": 3,
+                                    "stage_type": "fallback_model",
+                                    "name": fallback_cand.name,
+                                    "provider": getattr(fallback_cand, "provider", "none"),
+                                    "status": "error",
+                                    "start_ms": round(cur_start_ms, 2),
+                                    "duration_ms": fb_dur_ms,
+                                    "tokens": {"prompt": prompt_tokens, "completion": 0, "total": prompt_tokens},
+                                    "cost_usd": 0.0,
+                                    "detail": f"容灾转发备选模型执行亦失败: {fb_err}",
+                                    "snippet": "备选模型调用异常",
+                                })
 
                 total_request_latency += real_dur
 
-                cost_router = self._calc_model_cost(chosen_model, real_p_tokens, real_o_tokens) if chosen_model else 0.0
-                cost_exp = self._calc_model_cost(expensive_model, real_p_tokens, real_o_tokens) if expensive_model else cost_router
-                cost_chp = self._calc_model_cost(cheap_model, real_p_tokens, real_o_tokens) if cheap_model else 0.0
-                savings_usd = max(0.0, cost_exp - cost_router)
-                savings_pct = round((savings_usd / cost_exp * 100.0), 2) if cost_exp > 0 else 0.0
+                if err_msg and not real_response_text:
+                    # 真实压测下若用例调用彻底失败，不计入节省额度（避免因失败未消耗Token而产生虚假降本）
+                    cost_router = 0.0
+                    cost_exp = 0.0
+                    cost_chp = 0.0
+                    savings_usd = 0.0
+                    savings_pct = 0.0
+                else:
+                    cost_router = self._calc_model_cost(chosen_model, real_p_tokens, real_o_tokens) if chosen_model else 0.0
+                    cost_exp = self._calc_model_cost(expensive_model, real_p_tokens, real_o_tokens) if expensive_model else cost_router
+                    cost_chp = self._calc_model_cost(cheap_model, real_p_tokens, real_o_tokens) if cheap_model else 0.0
+                    savings_usd = max(0.0, cost_exp - cost_router)
+                    savings_pct = round((savings_usd / cost_exp * 100.0), 2) if cost_exp > 0 else 0.0
 
                 tier_chosen = "cheap" if (chosen_model and (getattr(chosen_model, "free", False) or getattr(chosen_model.prices, "is_free", False))) else ("expensive" if (chosen_model == expensive_model) else "mid")
                 is_aligned = (expected_tier == "expensive" and tier_chosen == "expensive") or (expected_tier in ("cheap", "mid") and tier_chosen in ("cheap", "mid"))
@@ -916,10 +939,11 @@ class BenchmarkEvaluator:
             cat_info = cat_stats.setdefault(r.category, {"total": 0, "savings_usd": 0.0, "cheap_count": 0, "exp_count": 0})
             cat_info["total"] += 1
             cat_info["savings_usd"] += r.savings_usd
-            if r.cost_router == 0.0 or r.savings_pct > 80.0:
-                cat_info["cheap_count"] += 1
-            elif r.cost_router == r.cost_expensive:
-                cat_info["exp_count"] += 1
+            if not r.error:
+                if r.cost_router == 0.0 or r.savings_pct > 80.0:
+                    cat_info["cheap_count"] += 1
+                elif r.cost_router == r.cost_expensive:
+                    cat_info["exp_count"] += 1
 
         tot_router = sum(r.cost_router for r in results)
         tot_exp = sum(r.cost_expensive for r in results)
