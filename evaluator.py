@@ -739,7 +739,7 @@ class BenchmarkEvaluator:
         sem = asyncio.Semaphore(2)
         loop = asyncio.get_event_loop()
 
-        async with httpx.AsyncClient(timeout=25.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(65.0, connect=15.0)) as client:
             async def run_single_case(idx: int, item: dict) -> CaseResult:
                 nonlocal total_classifier_latency, total_request_latency
                 cid = item.get("id", f"case_{idx+1}")
@@ -983,14 +983,14 @@ class BenchmarkEvaluator:
                                         e_succ, e_dur, e_txt, e_pt, e_ct, e_err = await call_model_api(expensive_model, esc_prov, output_tokens)
                                         real_dur += e_dur
                                         esc_dur_ms = round(e_dur * 1000.0, 2)
+                                        is_case_escalated = True
+                                        hop_count = 2
                                         if e_succ:
                                             real_response_text = e_txt
                                             real_p_tokens = e_pt
                                             real_o_tokens = e_ct
                                             chosen_model = expensive_model
                                             chosen_name = expensive_model.name
-                                            is_case_escalated = True
-                                            hop_count = 2
                                             raw_stages.append({
                                                 "stage_index": 4,
                                                 "stage_type": "escalate_model",
@@ -1003,6 +1003,21 @@ class BenchmarkEvaluator:
                                                 "cost_usd": round(self._calc_model_cost(expensive_model, e_pt, e_ct), 6),
                                                 "detail": f"升级至高阶模型调用成功 (200 OK)",
                                                 "snippet": (e_txt[:140] + "...") if len(e_txt) > 140 else e_txt,
+                                            })
+                                        else:
+                                            err_msg = f"首选质检未达标，升级至高阶模型异常: {e_err}"
+                                            raw_stages.append({
+                                                "stage_index": 4,
+                                                "stage_type": "escalate_model",
+                                                "name": expensive_model.name,
+                                                "provider": getattr(expensive_model, "provider", "none"),
+                                                "status": "timeout" if ("超时" in e_err or "timeout" in e_err.lower()) else "error",
+                                                "start_ms": round(cur_start_ms, 2),
+                                                "duration_ms": esc_dur_ms,
+                                                "tokens": {"prompt": prompt_tokens, "completion": 0, "total": prompt_tokens},
+                                                "cost_usd": 0.0,
+                                                "detail": f"升级至高阶模型失败: {e_err}",
+                                                "snippet": f"升级模型未能响应: {e_err}",
                                             })
                             except Exception as chk_e:
                                 log.warning("Real benchmark verify error: %s", chk_e)
