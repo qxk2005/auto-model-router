@@ -289,6 +289,10 @@ function renderModels() {
 
   currentConfig.models.forEach((m, idx) => {
     const tr = document.createElement("tr");
+    const isEnabled = m.enabled !== false;
+    if (!isEnabled) {
+      tr.classList.add("model-row-disabled");
+    }
     const p = m.prices || { input: 0, output: 0, cache_read: 0 };
     const probe = modelProbeCache[m.name];
 
@@ -303,11 +307,26 @@ function renderModels() {
       probeHtml = `<span class="status-pill error" onclick="showProbeDetail(${idx})" title="点击查看诊断报错详情">⚠ 异常 (${probe.latency_ms}ms)</span>`;
     }
 
+    const switchHtml = `
+      <div class="model-toggle-wrap">
+        <label class="model-switch" title="点击${isEnabled ? '停用' : '启用'}此模型（即时生效）">
+          <input type="checkbox" id="chkModelEnabled_${idx}" ${isEnabled ? "checked" : ""} onchange="toggleModelEnabled(${idx})">
+          <span class="model-slider"></span>
+        </label>
+        <span class="model-switch-label ${isEnabled ? 'enabled' : 'disabled'}">
+          ${isEnabled ? '已启用' : '已停用'}
+        </span>
+      </div>
+    `;
+
     tr.innerHTML = `
       <td>
         <div style="font-weight:700; color:var(--primary); font-family:var(--font-mono); font-size:13.5px; line-height:1.2;">${m.name}</div>
         <div style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono); margin-top:3px;">上游: ${m.upstream_id || m.name}</div>
-        ${m.free ? '<div style="margin-top:3px;"><span class="badge badge-green" style="font-size:10px; padding:1px 6px;">✓ 免费(0成本)</span></div>' : ''}
+        <div style="margin-top:3px; display:flex; gap:4px; align-items:center;">
+          ${m.free ? '<span class="badge badge-green" style="font-size:10px; padding:1px 6px;">✓ 免费(0成本)</span>' : ''}
+          ${!isEnabled ? '<span class="badge-disabled-model">⚪ 已停用</span>' : ''}
+        </div>
       </td>
       <td><span class="badge badge-purple">${m.provider}</span></td>
       <td>${formatDualPrice(p.input)}</td>
@@ -319,6 +338,7 @@ function renderModels() {
           ${m.timeout_seconds ? `<span class="badge badge-purple" style="font-size:9.5px; padding:1px 4px;">⏱️ ${m.timeout_seconds}s</span>` : `<span style="color:var(--text-dim); font-size:10px;">⏱️ 继承(${currentConfig?.policy?.request_timeout_seconds || 60}s)</span>`}
         </div>
       </td>
+      <td>${switchHtml}</td>
       <td>${probeHtml}</td>
       <td style="text-align: right;">
         <div class="action-btns-group" style="justify-content: flex-end;">
@@ -329,6 +349,20 @@ function renderModels() {
     `;
     tbody.appendChild(tr);
   });
+}
+
+async function toggleModelEnabled(idx) {
+  if (!currentConfig || !currentConfig.models || !currentConfig.models[idx]) return;
+  const m = currentConfig.models[idx];
+  const nextState = !(m.enabled !== false);
+  m.enabled = nextState;
+  renderModels();
+  try {
+    await savePolicyConfig();
+    showToast(`模型 [${m.name}] 已${nextState ? '启用' : '停用'}并完成热重载！`, "success");
+  } catch (e) {
+    showToast(`更新模型状态失败: ${e}`, "error");
+  }
 }
 
 // Populate Judge Model Dropdown
@@ -349,9 +383,10 @@ function populateJudgeModelSelect(selectedModel) {
     currentConfig.models.forEach(m => {
       const opt = document.createElement("option");
       opt.value = m.name;
+      const isEnabled = m.enabled !== false;
       const cap = m.capability?.general || m.capability?.coding || "--";
       const inPrice = (m.prices && m.prices.input !== undefined) ? m.prices.input : "--";
-      opt.textContent = `${m.name} (${m.provider} - 算力:${cap}, $${inPrice}/Mtok)`;
+      opt.textContent = `${m.name}${isEnabled ? '' : ' (已停用)'} (${m.provider} - 算力:${cap}, $${inPrice}/Mtok)`;
       sel.appendChild(opt);
     });
   }
@@ -1738,6 +1773,9 @@ function openAddModelModal() {
   document.getElementById("capGeneralInput").value = "0.85";
   document.getElementById("modelTimeoutInput").value = "";
 
+  const chkEnabled = document.getElementById("modelEnabledCheckbox");
+  if (chkEnabled) chkEnabled.checked = true;
+
   switchModelModalTab("basics");
   onModelProviderChanged();
   updatePricingUsdDisplay();
@@ -1788,6 +1826,9 @@ function openEditModelModal(modelIdx) {
   document.getElementById("customModelInputBox").style.display = "none";
   document.getElementById("modelNameInput").value = m.name || "";
   chkFree.checked = !!m.free;
+
+  const chkEnabled = document.getElementById("modelEnabledCheckbox");
+  if (chkEnabled) chkEnabled.checked = (m.enabled !== false);
 
   // Fill pricing
   const p = m.prices || { input: 0, output: 0, cache_read: 0 };
@@ -1968,6 +2009,7 @@ function saveModelFromModal() {
 
   const name = document.getElementById("modelNameInput").value.trim() || upstreamId;
   const isFree = document.getElementById("modelFreeCheckbox").checked;
+  const isEnabled = document.getElementById("modelEnabledCheckbox") ? document.getElementById("modelEnabledCheckbox").checked : true;
   const inputPrice = isFree ? 0 : (parseFloat(document.getElementById("modelInputPrice").value) || 0);
   const outPrice = isFree ? 0 : (parseFloat(document.getElementById("modelOutputPrice").value) || 0);
   const cachePrice = isFree ? 0 : (parseFloat(document.getElementById("modelCachePrice").value) || 0);
@@ -2021,6 +2063,7 @@ function saveModelFromModal() {
     if (hasVision) {
       target.vision = true;
     }
+    target.enabled = isEnabled;
     if (timeoutSec !== null) {
       target.timeout_seconds = timeoutSec;
     } else {
@@ -2036,6 +2079,7 @@ function saveModelFromModal() {
       provider: provId,
       upstream_id: upstreamId,
       free: isFree,
+      enabled: isEnabled,
       prices: {
         input: inputPrice,
         output: outPrice,

@@ -2119,4 +2119,104 @@ body {
   pointer-events: none;
 }
 
+/* -------------------------------------------------------------------------
+ * Model Enable/Disable Toggle Switch & Table Row Status
+ * ------------------------------------------------------------------------- */
+.model-toggle-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 20px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.model-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.model-slider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  border-radius: 20px;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.model-slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background-color: #ffffff;
+  border-radius: 50%;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+
+.model-switch input:checked + .model-slider {
+  background-color: var(--primary, #0284c7);
+}
+
+.model-switch input:checked + .model-slider:before {
+  transform: translateX(18px);
+}
+
+.model-switch:hover .model-slider {
+  filter: brightness(0.96);
+}
+
+.model-switch-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  white-space: nowrap;
+}
+
+.model-switch-label.enabled {
+  color: #059669;
+}
+
+.model-switch-label.disabled {
+  color: #94a3b8;
+}
+
+/* 停用模型表格行弱化 */
+tr.model-row-disabled {
+  background-color: #fbfcfd !important;
+  opacity: 0.65;
+  transition: opacity 0.2s ease;
+}
+
+tr.model-row-disabled:hover {
+  opacity: 0.85;
+}
+
+.badge-disabled-model {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  display: inline-block;
+  margin-top: 3px;
+}
+
 

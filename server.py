@@ -244,11 +244,26 @@ def build_judge(config, raw_policy: dict):
         if provider:
             return create_llm_judge(target_model, provider)
 
-    # 3. Remote TypeSafe Jev API
+    # 3. Fallback to Laya local engine if configured model was disabled or missing
+    clf = getattr(ar_server.router, "classifier", None) or jev.classifier_from_config(raw_policy)
+    if hasattr(clf, "judge"):
+        log.warning("Judge model '%s' is disabled or missing; safely falling back to Laya local engine", judge_choice)
+        def fallback_laya_judge(req: str, ans: str, category: str = "general") -> Judgement:
+            try:
+                res = clf.judge(req, ans, category=category)
+                if not res.failed:
+                    return res
+            except Exception as ex:
+                log.warning("Fallback Laya local judge failed: %s", ex)
+            return Judgement(p_adequate=0.5, latency_s=0.0, failed=True)
+        fallback_laya_judge.__name__ = "laya_judge[fallback]"
+        return fallback_laya_judge
+
+    # 4. Remote TypeSafe Jev API
     if os.environ.get("TYPESAFE_API_KEY"):
         return jev.judge
 
-    # 4. Fallback to default LLM in catalog
+    # 5. Fallback to default LLM in catalog
     return _find_default_llm_judge(config)
 
 

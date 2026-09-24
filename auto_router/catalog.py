@@ -112,6 +112,7 @@ class ModelInfo:
     max_output_tokens: int = 32_000
     vision: bool = False
     tools: bool = True
+    enabled: bool = True
     #: 0..100 per category; missing categories fall back to "general".
     capability: dict[str, float] = field(default_factory=dict)
     #: Signed benchmaxxing gap in capability points. Positive means headline

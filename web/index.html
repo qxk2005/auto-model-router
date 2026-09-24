@@ -281,14 +281,15 @@
             <table class="data-table models-catalog-table">
               <thead>
                 <tr>
-                  <th style="width: 22%;">模型代号 / 上游 ID</th>
-                  <th style="width: 11%;">提供商</th>
-                  <th style="width: 13%;">输入单价 (¥/1M)</th>
-                  <th style="width: 13%;">输出单价 (¥/1M)</th>
-                  <th style="width: 11%;">缓存单价 (¥/1M)</th>
-                  <th style="width: 11%;">上下文 / 超时</th>
-                  <th style="width: 9%;">可用性探测</th>
-                  <th style="width: 10%; text-align: right;">操作</th>
+                  <th style="width: 21%;">模型代号 / 上游 ID</th>
+                  <th style="width: 10%;">提供商</th>
+                  <th style="width: 12%;">输入单价 (¥/1M)</th>
+                  <th style="width: 12%;">输出单价 (¥/1M)</th>
+                  <th style="width: 10%;">缓存单价 (¥/1M)</th>
+                  <th style="width: 10%;">上下文 / 超时</th>
+                  <th style="width: 11%;">状态 / 启用</th>
+                  <th style="width: 8%;">可用性探测</th>
+                  <th style="width: 6%; text-align: right;">操作</th>
                 </tr>
               </thead>
               <tbody id="modelsTableBody">
@@ -882,6 +883,13 @@
             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
               <input type="checkbox" id="modelFreeCheckbox" onchange="onModelFreeToggled()">
               <span>设为免费 / 零成本模型 (本地 LM Studio 勾选此项，调用成本记为 0)</span>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-top: 4px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="modelEnabledCheckbox" checked>
+              <span style="font-weight: 600; color: var(--primary);">启用该模型 (开启后纳入 Router 调度池与评测候选)</span>
             </label>
           </div>
         </div>
