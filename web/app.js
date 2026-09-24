@@ -1809,7 +1809,8 @@ function showProbeDetail(modelIdx) {
 
   const probe = modelProbeCache[m.name];
   document.getElementById("probeModalTitle").textContent = `模型可用性与能力探测：${m.name}`;
-  document.getElementById("probeModalSubtitle").textContent = `所属提供商: ${m.provider} | 上游标识: ${m.upstream_id} | 免费: ${m.free ? '是' : '计费'}`;
+  const epInfo = probe && probe.resolved_base_url ? ` | 上游端点: ${probe.resolved_base_url}` : '';
+  document.getElementById("probeModalSubtitle").textContent = `所属提供商: ${m.provider}${epInfo} | 上游标识: ${m.upstream_id} | 免费: ${m.free ? '是' : '计费'}`;
 
   const statusEl = document.getElementById("probeStatusText");
   const latEl = document.getElementById("probeLatencyNum");
