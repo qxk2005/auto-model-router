@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <link rel="stylesheet" href="/web/style.css?v=20260924_models_fit_v1">
+  <link rel="stylesheet" href="/web/style.css?v=20260924_provider_edit_v1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -741,7 +741,7 @@
       <div class="modal-body">
         <div class="form-grid">
           <div class="form-group">
-            <label>提供商标识 (ID)</label>
+            <label>提供商标识 (ID) <span id="provIdNotice" style="font-size:11.5px; font-weight:normal; color:var(--text-muted); display:none;">(唯一标识，不可修改)</span></label>
             <input type="text" id="provIdInput" class="form-control" placeholder="例如: lm-studio, deepseek, siliconflow">
           </div>
           <div class="form-group">
@@ -755,7 +755,7 @@
         </div>
 
         <!-- Auto Fetch Models Section -->
-        <div class="model-fetch-box">
+        <div class="model-fetch-box" id="provAutoFetchBox">
           <div class="fetch-box-header">
             <div>
               <strong>自动探测与获取端点可用模型</strong>
@@ -784,7 +784,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="testModalProvider()">⚡ 测试端点连通性</button>
-        <button class="btn btn-primary" onclick="saveProviderFromModal()">保存提供商并批量导入已选模型</button>
+        <button class="btn btn-primary" id="btnSaveProviderModal" onclick="saveProviderFromModal()">保存提供商并批量导入已选模型</button>
       </div>
     </div>
   </div>
@@ -1063,6 +1063,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=20260924_models_fit_v1"></script>
+  <script src="/web/app.js?v=20260924_provider_edit_v1"></script>
 </body>
 </html>
