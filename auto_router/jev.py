@@ -552,6 +552,13 @@ class LocalLayaClassifier:
             agent = self._load()
             with self._predict_lock:
                 payload = agent.predict(state, questions)
+                if getattr(self, "actual_device", "") == "mps":
+                    try:
+                        import torch
+                        if hasattr(torch, "mps") and hasattr(torch.mps, "synchronize"):
+                            torch.mps.synchronize()
+                    except Exception:
+                        pass
             answers = payload["answers"]
             usage = payload.get("usage") or {}
             failure_answer = answers.get("failure") or {}
@@ -576,6 +583,13 @@ class LocalLayaClassifier:
             agent = self._load()
             with self._predict_lock:
                 payload = agent.predict(state, QUESTIONS)
+                if getattr(self, "actual_device", "") == "mps":
+                    try:
+                        import torch
+                        if hasattr(torch, "mps") and hasattr(torch.mps, "synchronize"):
+                            torch.mps.synchronize()
+                    except Exception:
+                        pass
             a = payload["answers"]
             usage = payload.get("usage") or {}
             return Classification(

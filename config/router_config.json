@@ -93,7 +93,7 @@
       "tools": true,
       "vision": false,
       "timeout_seconds": 180,
-      "enabled": true
+      "enabled": false
     }
   ],
   "policy": {
