@@ -106,6 +106,7 @@ class VerifyPolicy:
     """
 
     enabled: bool = True
+    judge_model: str = "laya"
     #: Blended list price at or below which a route counts as the cheap tier.
     #: Free and ``:free`` routes price at 0 and always clear it.
     max_price_per_mtok: float = 1.0

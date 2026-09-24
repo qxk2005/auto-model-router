@@ -109,7 +109,7 @@
       "context_chars": 2000
     },
     "failure_cost_multiplier": 1,
-    "stakes_usd": 2,
+    "stakes_usd": 4,
     "detect_prob": 0.6,
     "remaining_turns": 3,
     "difficulty_confidence": 1,
@@ -119,9 +119,10 @@
       0.51
     ],
     "verify": {
-      "enabled": false,
-      "max_price_per_mtok": 1,
-      "max_capability": 75,
+      "enabled": true,
+      "judge_model": "deepseek-v4-flash",
+      "max_price_per_mtok": 2.5,
+      "max_capability": 77.5,
       "thresholds": {
         "default": 0.3,
         "coding": 0.3,

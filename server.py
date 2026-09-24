@@ -26,6 +26,20 @@ try:
     dotenv.load_dotenv()
 except ImportError:
     pass
+
+# Ensure .env is read if present
+_env_p = Path(".env")
+if _env_p.exists():
+    try:
+        with open(_env_p, "r", encoding="utf-8") as _ef:
+            for _line in _ef:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    os.environ.setdefault(_k.strip(), _v.strip())
+    except Exception:
+        pass
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
@@ -34,7 +48,9 @@ from pydantic import BaseModel, Field
 
 import auto_router.server as ar_server
 from auto_router.config import for_http, load_config, save_config, expand_env_vars, normalize_provider_url
-from auto_router.jev import LocalLayaClassifier
+import auto_router.jev as jev
+from auto_router.jev import LocalLayaClassifier, Judgement
+from auto_router.verify import VerifyPolicy
 from auto_router.router import Router
 from evaluator import BenchmarkEvaluator, BenchmarkSummary
 from reporter import ReportGenerator
@@ -98,13 +114,155 @@ def mask_secret(val: str | None) -> str | None:
     return f"{val[:6]}********{val[-4:]}"
 
 
+def create_llm_judge(target_model, provider):
+    """Create an LLM-as-a-Judge function that synchronously evaluates answer adequacy."""
+    raw_api_key = expand_env_vars(provider.api_key) if provider.api_key else ""
+    headers = {"Content-Type": "application/json"}
+    if raw_api_key:
+        headers["Authorization"] = f"Bearer {raw_api_key}"
+    base_url = expand_env_vars(provider.base_url)
+    resolved_url = normalize_provider_url(base_url)
+    endpoint = f"{resolved_url}/chat/completions"
+    upstream_model = target_model.upstream_id or target_model.name
+
+    def judge_fn(request_text: str, answer: str, category: str = "general") -> Judgement:
+        t0 = time.perf_counter()
+        system_prompt = (
+            "You are an expert AI quality inspector and adequacy judge. "
+            "Your task is to objectively evaluate whether the assistant response fully, correctly, and accurately "
+            "addresses the user request. Output STRICTLY a single JSON object with no markdown formatting or extra text."
+        )
+        user_prompt = (
+            f"Task Category: {category}\n\n"
+            f"[User Request]:\n{request_text[:4000]}\n\n"
+            f"[Assistant Response to Evaluate]:\n{answer[:6000]}\n\n"
+            "Criteria:\n"
+            "- p_adequate: float from 0.0 to 1.0 (1.0 = completely correct & helpful, 0.0 = completely failed/wrong/empty)\n"
+            "- failure: 'fine' if adequate (p_adequate >= 0.3), else 'wrong', 'incomplete', or 'off_topic'\n"
+            "- reason: short concise explanation under 25 words in Chinese\n\n"
+            "Format:\n"
+            "{\n"
+            '  "p_adequate": 0.95,\n'
+            '  "failure": "fine",\n'
+            '  "reason": "解答完整正确，符合全部指令要求"\n'
+            "}"
+        )
+        payload = {
+            "model": upstream_model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.0,
+            "max_tokens": 150,
+        }
+        try:
+            with httpx.Client(timeout=25.0) as client:
+                resp = client.post(endpoint, headers=headers, json=payload)
+                lat = time.perf_counter() - t0
+                if resp.status_code == 200:
+                    data = resp.json()
+                    choices = data.get("choices") or []
+                    if choices:
+                        raw_text = choices[0].get("message", {}).get("content", "").strip()
+                        import re
+                        m = re.search(r"\{[\s\S]*\}", raw_text)
+                        content = m.group(0) if m else raw_text
+                        parsed = json.loads(content)
+                        p_adeq = float(parsed.get("p_adequate", 0.5))
+                        p_adeq = max(0.0, min(1.0, p_adeq))
+                        failure = str(parsed.get("failure") or "fine").lower()
+                        if failure not in ("fine", "wrong", "incomplete", "off_topic"):
+                            failure = "wrong" if p_adeq < 0.3 else "fine"
+                        reason = str(parsed.get("reason") or "LLM 质检完成")
+                        usage = data.get("usage") or {}
+                        log.info("LLM Judge [%s] verdict: p_adequate=%.2f, failure=%s, reason=%s (took %.2fs)",
+                                 target_model.name, p_adeq, failure, reason, lat)
+                        return Judgement(
+                            p_adequate=p_adeq,
+                            latency_s=lat,
+                            failed=False,
+                            failure=failure,
+                            model=target_model.name,
+                            input_tokens=int(usage.get("prompt_tokens") or 0),
+                            output_tokens=int(usage.get("completion_tokens") or 0)
+                        )
+                log.warning("LLM Judge call returned HTTP %s: %s", resp.status_code, resp.text[:200])
+        except Exception as e:
+            log.warning("LLM Judge call exception: %s", e)
+        return Judgement(p_adequate=0.5, latency_s=time.perf_counter() - t0, failed=True)
+
+    judge_fn.__name__ = f"llm_judge[{target_model.name}]"
+    return judge_fn
+
+
+def _find_default_llm_judge(config):
+    models = getattr(config.catalog, "models", [])
+    for pref in ("flash", "deepseek", "pro", "qwen", "llama", "gemma"):
+        for m_info in models:
+            if pref in m_info.name.lower():
+                provider = config.providers.get(m_info.provider)
+                if provider:
+                    return create_llm_judge(m_info, provider)
+    for m_info in models:
+        provider = config.providers.get(m_info.provider)
+        if provider:
+            return create_llm_judge(m_info, provider)
+    return None
+
+
+def build_judge(config, raw_policy: dict):
+    verify_cfg = raw_policy.get("verify") or {}
+    if not verify_cfg.get("enabled", False):
+        return None
+
+    judge_choice = str(verify_cfg.get("judge_model") or "deepseek-v4-flash").strip()
+
+    # 1. Local Laya engine
+    if judge_choice.lower() in ("laya", "local"):
+        clf = getattr(ar_server.router, "classifier", None) or jev.classifier_from_config(raw_policy)
+        if hasattr(clf, "judge"):
+            def safe_laya_judge(req: str, ans: str, category: str = "general") -> Judgement:
+                try:
+                    res = clf.judge(req, ans, category=category)
+                    if not res.failed:
+                        return res
+                except Exception as ex:
+                    log.warning("Laya local judge failed: %s; falling back to LLM judge", ex)
+                fb = _find_default_llm_judge(config)
+                if fb:
+                    return fb(req, ans, category=category)
+                return Judgement(p_adequate=0.5, latency_s=0.0, failed=True)
+            safe_laya_judge.__name__ = "laya_judge[local]"
+            return safe_laya_judge
+
+    # 2. Configured model in catalog
+    models = getattr(config.catalog, "models", [])
+    target_model = next((m for m in models if m.name == judge_choice), None)
+    if target_model:
+        provider = config.providers.get(target_model.provider)
+        if provider:
+            return create_llm_judge(target_model, provider)
+
+    # 3. Remote TypeSafe Jev API
+    if os.environ.get("TYPESAFE_API_KEY"):
+        return jev.judge
+
+    # 4. Fallback to default LLM in catalog
+    return _find_default_llm_judge(config)
+
+
 def reload_router_system():
     """Reload configuration and re-initialize router instance."""
     raw = get_current_raw_config()
     loaded = for_http(load_config())
     ar_server.config = loaded
-    ar_server.router = Router(loaded)
-    log.info("Router system reloaded with %d models and %d providers", len(loaded.catalog.models), len(loaded.providers))
+    judge_fn = build_judge(loaded, raw.get("policy", {}))
+    ar_server.router = Router(loaded, judge=judge_fn)
+    log.info("Router system reloaded with %d models, %d providers, judge=%s, verify.enabled=%s",
+             len(loaded.catalog.models), len(loaded.providers),
+             getattr(judge_fn, "__name__", str(judge_fn)),
+             ar_server.router.verify.enabled)
     return ar_server.router
 
 
@@ -802,15 +960,93 @@ async def test_single_prompt(req: SingleTestRequest):
                                 dispatched_models.append(dispatch_entry)
 
                                 # 触发 Laya 质量验收判定 (如果有)
-                                if full_content and hasattr(router, "check"):
+                                ans_to_check = full_content or full_display_output
+                                if ans_to_check and hasattr(router, "check"):
                                     t_chk_0 = time.perf_counter()
                                     chk_start_l = add_log("INFO", "触发 Laya 质量验收判定 (Adequacy Verification)...", "verify")
                                     yield f"data: {json.dumps({'type': 'verify_start', 'log': chk_start_l}, ensure_ascii=False)}\n\n"
                                     try:
-                                        verdict = await asyncio.to_thread(router.check, route_res, prompt, full_content)
+                                        verdict = await asyncio.to_thread(router.check, route_res, prompt, ans_to_check)
                                         verify_ms = round((time.perf_counter() - t_chk_0) * 1000.0, 2)
                                         chk_done_l = add_log("INFO", f"Laya 质量判定完成: 满意度预估={getattr(verdict, 'p_adequate', 'N/A')}, 是否建议升级={getattr(verdict, 'escalate', False)}, 耗时={verify_ms}ms", "verify")
-                                        yield f"data: {json.dumps({'type': 'verify_done', 'log': chk_done_l, 'verification_ms': verify_ms}, ensure_ascii=False)}\n\n"
+                                        yield f"data: {json.dumps({'type': 'verify_done', 'log': chk_done_l, 'verification_ms': verify_ms, 'verdict': {'escalate': getattr(verdict, 'escalate', False), 'p_adequate': getattr(verdict, 'p_adequate', 0.5), 'failure': getattr(verdict, 'failure', 'unknown')}}, ensure_ascii=False)}\n\n"
+
+                                        # 若判定需要升级 (escalate == True)，触发第二跳高阶模型升级调用
+                                        if getattr(verdict, "escalate", False):
+                                            try:
+                                                retry_res, _, _ = await asyncio.to_thread(
+                                                    router.escalate_after_verdict, route_res, verdict, messages, full_content
+                                                )
+                                            except Exception as esc_err:
+                                                log.warning("escalate_after_verdict error: %s", esc_err)
+                                                retry_res = None
+                                            
+                                            esc_model = retry_res.model if (retry_res and retry_res.model) else None
+                                            if not esc_model or esc_model.name == cur_model_name:
+                                                pro_model = None
+                                                for m in getattr(router.config.catalog, "models", []):
+                                                    if m.name != cur_model_name and (not pro_model or m.cap("general") > pro_model.cap("general")):
+                                                        pro_model = m
+                                                esc_model = pro_model
+
+                                            if esc_model and esc_model.name != cur_model_name:
+                                                esc_prov = router.config.providers.get(esc_model.provider)
+                                                if esc_prov:
+                                                    esc_warn_l = add_log("WARN", f"首选模型 [{cur_model_name}] 质量未通过验收 (满意度评分={getattr(verdict, 'p_adequate', 'N/A')})，触发两跳升级，转向调度高阶旗舰模型 [{esc_model.name}]...", "verify")
+                                                    yield f"data: {json.dumps({'type': 'escalate_start', 'target_model': esc_model.name, 'reason': getattr(verdict, 'reason', ''), 'log': esc_warn_l}, ensure_ascii=False)}\n\n"
+                                                    
+                                                    sep_txt = f"\n\n---\n> ⚠️ **质检验收判定未通过**（满意度评分: {getattr(verdict, 'p_adequate', 0.0):.2f}，缺陷类型: {getattr(verdict, 'failure', 'inadequate')}）。已自动级联升级至 **{esc_model.name}** 重新生成优质解答：\n\n"
+                                                    yield f"data: {json.dumps({'type': 'chunk', 'content': sep_txt}, ensure_ascii=False)}\n\n"
+                                                    
+                                                    t_esc_0 = time.perf_counter()
+                                                    esc_payload = {**upstream_body, "model": esc_model.upstream_id or esc_model.name, "stream": True}
+                                                    esc_headers = {"Content-Type": "application/json"}
+                                                    if esc_prov.api_key:
+                                                        esc_headers["Authorization"] = f"Bearer {expand_env_vars(esc_prov.api_key)}"
+                                                    esc_url = f"{normalize_provider_url(expand_env_vars(esc_prov.base_url))}/chat/completions"
+                                                    esc_full_content = ""
+                                                    try:
+                                                        async with httpx.AsyncClient(timeout=effective_timeout) as esc_client:
+                                                            async with esc_client.stream("POST", esc_url, headers=esc_headers, json=esc_payload) as esc_resp:
+                                                                if esc_resp.status_code == 200:
+                                                                    async for raw_line in esc_resp.aiter_lines():
+                                                                        line = raw_line.strip()
+                                                                        if not line:
+                                                                            continue
+                                                                        if line.startswith("data: "):
+                                                                            chunk_data = line[6:].strip()
+                                                                            if chunk_data == "[DONE]":
+                                                                                break
+                                                                            try:
+                                                                                c_json = json.loads(chunk_data)
+                                                                                delta = c_json.get("choices", [{}])[0].get("delta", {})
+                                                                                chunk_content = delta.get("content", "")
+                                                                                if chunk_content:
+                                                                                    esc_full_content += chunk_content
+                                                                                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
+                                                                            except Exception:
+                                                                                pass
+                                                                    esc_up_ms = round((time.perf_counter() - t_esc_0) * 1000.0, 2)
+                                                                    upstream_ms += esc_up_ms
+                                                                    esc_succ_l = add_log("INFO", f"升级模型 [{esc_model.name}] 成功生成优质答案 (耗时 {esc_up_ms}ms)", "upstream")
+                                                                    esc_entry = {
+                                                                        "attempt": attempt_idx + 2,
+                                                                        "model_name": esc_model.name,
+                                                                        "provider": esc_prov.name,
+                                                                        "upstream_id": esc_model.upstream_id,
+                                                                        "status": "success",
+                                                                        "http_status": 200,
+                                                                        "latency_ms": esc_up_ms,
+                                                                        "timeout_seconds": effective_timeout,
+                                                                        "output": esc_full_content,
+                                                                        "full_reply": esc_full_content,
+                                                                        "is_primary": False,
+                                                                        "is_escalation": True,
+                                                                    }
+                                                                    dispatched_models.append(esc_entry)
+                                                                    yield f"data: {json.dumps({'type': 'model_success', 'attempt': attempt_idx + 2, 'item': esc_entry, 'log': esc_succ_l}, ensure_ascii=False)}\n\n"
+                                                    except Exception as esc_call_e:
+                                                        log.warning("Escalated model call failed: %s", esc_call_e)
                                     except Exception as chk_e:
                                         chk_warn_l = add_log("WARN", f"Laya 质量判定跳过或异常: {chk_e}", "verify")
                                         yield f"data: {json.dumps({'type': 'verify_done', 'log': chk_warn_l, 'verification_ms': 0}, ensure_ascii=False)}\n\n"
@@ -1128,13 +1364,72 @@ async def test_single_prompt(req: SingleTestRequest):
                         upstream_data = dispatch_entry
 
                         # 触发 Laya 质量验收判定 (如果有)
-                        if content and hasattr(router, "check"):
+                        ans_to_check = content or full_display_output
+                        if ans_to_check and hasattr(router, "check"):
                             t_chk_0 = time.perf_counter()
                             add_log("INFO", "触发 Laya 质量验收判定 (Adequacy Verification)...", "verify")
                             try:
-                                verdict = await asyncio.to_thread(router.check, route_res, prompt, content)
+                                verdict = await asyncio.to_thread(router.check, route_res, prompt, ans_to_check)
                                 verify_ms = round((time.perf_counter() - t_chk_0) * 1000.0, 2)
                                 add_log("INFO", f"Laya 质量判定完成: 满意度预估={getattr(verdict, 'p_adequate', 'N/A')}, 是否建议升级={getattr(verdict, 'escalate', False)}, 耗时={verify_ms}ms", "verify")
+
+                                # 若判定需要升级 (escalate == True)，触发第二跳高阶模型升级调用
+                                if getattr(verdict, "escalate", False):
+                                    try:
+                                        test_msgs = [{"role": "user", "content": prompt}]
+                                        retry_res, _, _ = await asyncio.to_thread(
+                                            router.escalate_after_verdict, route_res, verdict, test_msgs, ans_to_check
+                                        )
+                                    except Exception as esc_err:
+                                        log.warning("escalate_after_verdict error: %s", esc_err)
+                                        retry_res = None
+                                    
+                                    esc_model = retry_res.model if (retry_res and retry_res.model) else None
+                                    if not esc_model or esc_model.name == cur_model_name:
+                                        pro_model = None
+                                        for m in getattr(router.config.catalog, "models", []):
+                                            if m.name != cur_model_name and (not pro_model or m.cap("general") > pro_model.cap("general")):
+                                                pro_model = m
+                                        esc_model = pro_model
+
+                                    if esc_model and esc_model.name != cur_model_name:
+                                        esc_prov = router.config.providers.get(esc_model.provider)
+                                        if esc_prov:
+                                            add_log("WARN", f"首选模型 [{cur_model_name}] 质量未达标 (满意度评分={getattr(verdict, 'p_adequate', 'N/A')})，触发两跳升级，调度高阶模型 [{esc_model.name}]...", "verify")
+                                            esc_t0 = time.perf_counter()
+                                            esc_payload = {**payload, "model": esc_model.upstream_id or esc_model.name, "stream": False}
+                                            esc_headers = {"Content-Type": "application/json"}
+                                            if esc_prov.api_key:
+                                                esc_headers["Authorization"] = f"Bearer {expand_env_vars(esc_prov.api_key)}"
+                                            esc_url = f"{normalize_provider_url(expand_env_vars(esc_prov.base_url))}/chat/completions"
+                                            try:
+                                                async with httpx.AsyncClient(timeout=effective_timeout) as esc_client:
+                                                    esc_resp = await esc_client.post(esc_url, headers=esc_headers, json=esc_payload)
+                                                    if esc_resp.status_code == 200:
+                                                        esc_data = esc_resp.json()
+                                                        esc_up_ms = round((time.perf_counter() - esc_t0) * 1000.0, 2)
+                                                        upstream_ms += esc_up_ms
+                                                        esc_content = esc_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                                                        content = esc_content
+                                                        dispatch_entry = {
+                                                            "attempt": attempt_idx + 2,
+                                                            "model_name": esc_model.name,
+                                                            "provider": esc_prov.name,
+                                                            "upstream_id": esc_model.upstream_id,
+                                                            "status": "success",
+                                                            "http_status": 200,
+                                                            "latency_ms": esc_up_ms,
+                                                            "timeout_seconds": effective_timeout,
+                                                            "output": esc_content,
+                                                            "full_reply": esc_content,
+                                                            "is_primary": False,
+                                                            "is_escalation": True,
+                                                        }
+                                                        dispatched_models.append(dispatch_entry)
+                                                        upstream_data = dispatch_entry
+                                                        add_log("INFO", f"升级模型 [{esc_model.name}] 成功生成优质答案 (耗时 {esc_up_ms}ms)", "upstream")
+                                            except Exception as esc_call_e:
+                                                log.warning("Escalated model call failed in non-streaming: %s", esc_call_e)
                             except Exception as chk_e:
                                 add_log("WARN", f"Laya 质量判定跳过或异常: {chk_e}", "verify")
 
