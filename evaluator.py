@@ -64,6 +64,13 @@ class CaseResult:
     trace_chain: list[dict] = field(default_factory=list)
     hop_count: int = 1
     escalated: bool = False
+    # Quality Verification (Verifier / Judge) fields
+    verified: bool = False
+    verify_score: float | None = None
+    verify_status: str = "disabled"  # "passed" | "escalated" | "exempt" | "disabled"
+    verify_failure_reason: str = ""
+    verify_judge: str = ""
+    verify_latency_ms: float = 0.0
 
 
 @dataclass
@@ -91,6 +98,8 @@ class BenchmarkSummary:
     usd_cny_rate: float = 7.20
     config_snapshot: dict[str, Any] = field(default_factory=dict)
     trace_topology_stats: dict[str, Any] = field(default_factory=dict)
+    verify_stats: dict[str, Any] = field(default_factory=dict)
+
 
 
 class BenchmarkEvaluator:
@@ -281,8 +290,9 @@ class BenchmarkEvaluator:
                 svc = "laya"
                 op = "laya: /classify & /route"
             elif st_type == "verifier":
-                svc = "laya"
-                op = "laya: /quality_check"
+                judge_m = st.get("judge_model") or "laya"
+                svc = "verifier"
+                op = f"judge: /adequacy_check ({judge_m})"
             elif st_type == "primary_model":
                 svc = f"provider[{st.get('provider', 'primary')}]"
                 op = f"{st.get('name', 'model')} /generate"
@@ -303,6 +313,17 @@ class BenchmarkEvaluator:
                 "stage.type": st_type,
                 "status": st_status,
             }
+            if st_type == "verifier":
+                tags["verify.judge"] = str(st.get("judge_model", "laya"))
+                if "p_adequate" in st and st["p_adequate"] is not None:
+                    tags["verify.p_adequate"] = f"{st['p_adequate']:.2f}"
+                if "threshold" in st:
+                    tags["verify.threshold"] = f"{st['threshold']:.2f}"
+                tags["verify.status"] = st_status
+                if "failure_type" in st:
+                    tags["verify.failure_type"] = str(st["failure_type"])
+                if "reason" in st and st["reason"]:
+                    tags["verify.reason"] = str(st["reason"])
             if "provider" in st:
                 tags["peer.service"] = str(st["provider"])
             if "name" in st:
@@ -319,7 +340,13 @@ class BenchmarkEvaluator:
                 tags["stage.detail"] = str(st["detail"])
 
             logs = []
-            if "snippet" in st and st["snippet"]:
+            if st_type == "verifier":
+                j_m = st.get("judge_model", "laya")
+                p_ad = st.get("p_adequate")
+                p_ad_str = f"{p_ad:.2f}" if p_ad is not None else "免检"
+                logs.append({"time_ms": 0.0, "event": "verify_start", "payload": f"质检裁决官 [{j_m}] 开始评估首选模型输出"})
+                logs.append({"time_ms": dur_ms, "event": "verify_verdict", "payload": f"满意度评分: {p_ad_str} | 结论: {st_status} | {st.get('reason', st.get('detail', ''))}"})
+            elif "snippet" in st and st["snippet"]:
                 logs.append({"time_ms": dur_ms, "event": "output_snippet", "payload": str(st["snippet"])})
 
             child_span = {
@@ -430,11 +457,62 @@ class BenchmarkEvaluator:
             is_chosen_local = getattr(chosen_model, "free", False) or "local" in getattr(chosen_model, "provider", "").lower()
             sim_primary_ms = 140.0 if is_chosen_local else 420.0
 
-            # 模拟推演：若为高难度/高风险任务但初选分配了较弱模型，按概率推演触发质量验收不合格并升级
-            p_failure_sim = max(0.0, min(0.85, ((clf.difficulty if clf else 0.5) - 0.45) * 1.5)) if (clf and tier_chosen == "cheap" and diff_tag == "hard") else 0.0
-            will_escalate = (p_failure_sim > 0.40)
+            # 模拟推演：读取质检验收策略配置
+            vfy_cfg = (self.config_raw.get("policy", {}) or {}).get("verify", {})
+            vfy_enabled = vfy_cfg.get("enabled", True)
+            vfy_judge = vfy_cfg.get("judge_model", "deepseek-v4-flash")
+            max_cap = float(vfy_cfg.get("max_capability", 77.5))
+            chosen_cap = chosen_model.cap(cat_expected) if chosen_model else 50.0
 
-            if not will_escalate:
+            p_failure_sim = max(0.0, min(0.85, ((clf.difficulty if clf else 0.5) - 0.45) * 1.5)) if (clf and tier_chosen == "cheap" and diff_tag == "hard") else 0.0
+            will_escalate = (p_failure_sim > 0.40) and vfy_enabled and (chosen_cap < max_cap)
+
+            case_verified = False
+            case_verify_score = None
+            case_verify_status = "disabled"
+            case_verify_failure_reason = ""
+            case_verify_judge = vfy_judge
+            case_verify_lat_ms = 0.0
+
+            if not vfy_enabled:
+                case_verify_status = "disabled"
+            elif chosen_cap >= max_cap:
+                case_verify_status = "exempt"
+                case_verified = False
+                raw_stages.append({
+                    "stage_index": 2,
+                    "stage_type": "primary_model",
+                    "name": chosen_name,
+                    "provider": getattr(chosen_model, "provider", "none"),
+                    "status": "success",
+                    "start_ms": round(lat_ms, 2),
+                    "duration_ms": round(sim_primary_ms, 2),
+                    "tokens": {"prompt": prompt_tokens, "completion": output_tokens, "total": prompt_tokens + output_tokens},
+                    "cost_usd": round(cost_router, 6),
+                    "detail": "首选高阶模型推演完成 (HTTP 200 模拟响应)",
+                    "snippet": f"首选旗舰模型生成完毕，Token 消耗: {prompt_tokens + output_tokens}",
+                })
+                raw_stages.append({
+                    "stage_index": 3,
+                    "stage_type": "verifier",
+                    "name": f"质量验收 ({vfy_judge})",
+                    "judge_model": vfy_judge,
+                    "provider": "judge",
+                    "status": "exempt",
+                    "start_ms": round(lat_ms + sim_primary_ms, 2),
+                    "duration_ms": 0.0,
+                    "tokens": {"prompt": 0, "completion": 0, "total": 0},
+                    "cost_usd": 0.0,
+                    "detail": f"高阶旗舰模型能力分 {chosen_cap:.1f} >= {max_cap}，免检直达无需评判",
+                    "snippet": "旗舰模型能力达标，命中免检规则直通交付",
+                })
+                hop_count = 1
+                is_case_escalated = False
+            elif not will_escalate:
+                case_verified = True
+                case_verify_score = 0.92
+                case_verify_status = "passed"
+                case_verify_lat_ms = 12.0
                 raw_stages.append({
                     "stage_index": 2,
                     "stage_type": "primary_model",
@@ -451,19 +529,29 @@ class BenchmarkEvaluator:
                 raw_stages.append({
                     "stage_index": 3,
                     "stage_type": "verifier",
-                    "name": "Laya 质量验收裁决 (Adequacy Check)",
-                    "provider": "local_engine",
+                    "name": f"质量验收裁决 ({vfy_judge})",
+                    "judge_model": vfy_judge,
+                    "provider": "judge",
                     "status": "adequate",
+                    "p_adequate": 0.92,
+                    "failure_type": "fine",
                     "start_ms": round(lat_ms + sim_primary_ms, 2),
                     "duration_ms": 12.0,
                     "tokens": {"prompt": 0, "completion": 0, "total": 0},
                     "cost_usd": 0.0,
-                    "detail": "质量判定满意度高 (p_adequate ≈ 0.95)，通过验收无需二次升级",
-                    "snippet": "裁决通过，直接采纳首选模型输出作为最终交付",
+                    "detail": f"质量判定满意度高 (p_adequate ≈ 0.92)，通过验收无需二次升级",
+                    "snippet": "裁决合格，直接采纳首选模型输出作为最终交付",
                 })
                 hop_count = 1
                 is_case_escalated = False
             else:
+                sim_score = round(max(0.05, 1.0 - p_failure_sim), 2)
+                case_verified = True
+                case_verify_score = sim_score
+                case_verify_status = "escalated"
+                case_verify_failure_reason = "代码生成逻辑不完整，复杂难点推导缺失"
+                case_verify_lat_ms = 16.0
+
                 raw_stages.append({
                     "stage_index": 2,
                     "stage_type": "primary_model",
@@ -481,15 +569,19 @@ class BenchmarkEvaluator:
                 raw_stages.append({
                     "stage_index": 3,
                     "stage_type": "verifier",
-                    "name": "Laya 质量验收裁决 (Adequacy Check)",
-                    "provider": "local_engine",
+                    "name": f"质量验收裁决 ({vfy_judge})",
+                    "judge_model": vfy_judge,
+                    "provider": "judge",
                     "status": "escalate_recommended",
+                    "p_adequate": sim_score,
+                    "failure_type": "incomplete",
+                    "reason": case_verify_failure_reason,
                     "start_ms": round(lat_ms + sim_primary_ms, 2),
                     "duration_ms": ver_ms,
                     "tokens": {"prompt": 0, "completion": 0, "total": 0},
                     "cost_usd": 0.0,
-                    "detail": f"质量判定预估满意度不足 (p_adequate ≈ {1.0 - p_failure_sim:.2f} < 0.65)，建议重新转发至高阶模型",
-                    "snippet": "触发 Scott-Shapiro 升级规约，转向高阶基准模型",
+                    "detail": f"质量判定预估满意度不足 (p_adequate ≈ {sim_score} < 0.65)，建议重新转发至高阶模型",
+                    "snippet": "触发质量验收升级规约，转向高阶基准模型",
                 })
                 esc_model = expensive_model or chosen_model
                 esc_cost = self._calc_model_cost(esc_model, prompt_tokens, output_tokens)
@@ -552,6 +644,12 @@ class BenchmarkEvaluator:
                     trace_chain=full_spans,
                     hop_count=hop_count,
                     escalated=is_case_escalated,
+                    verified=case_verified,
+                    verify_score=case_verify_score,
+                    verify_status=case_verify_status,
+                    verify_failure_reason=case_verify_failure_reason,
+                    verify_judge=case_verify_judge,
+                    verify_latency_ms=case_verify_lat_ms,
                 )
             )
             if on_progress:
@@ -580,6 +678,28 @@ class BenchmarkEvaluator:
             "avg_escalate_ms": round(sum(s["duration_ms"] for r in results for s in r.trace_chain if s.get("stage_type") in ("escalate_model", "fallback_model", "retry_model")) / max(1, sum(1 for r in results if r.escalated)), 2) if any(r.escalated for r in results) else 0.0,
         }
 
+        # 构造质检验收统计概览
+        vfy_cfg = (self.config_raw.get("policy", {}) or {}).get("verify", {})
+        v_passed = sum(1 for r in results if r.verify_status == "passed")
+        v_escalated = sum(1 for r in results if r.verify_status == "escalated")
+        v_exempt = sum(1 for r in results if r.verify_status == "exempt")
+        v_disabled = sum(1 for r in results if r.verify_status == "disabled")
+        v_checked = v_passed + v_escalated
+        pass_rate = round((v_passed / v_checked * 100.0), 1) if v_checked > 0 else (100.0 if v_exempt > 0 else 0.0)
+        avg_v_lat = round(sum(r.verify_latency_ms for r in results if r.verified) / max(1, v_checked), 1)
+        verify_stats = {
+            "enabled": vfy_cfg.get("enabled", True),
+            "judge_model": vfy_cfg.get("judge_model", "deepseek-v4-flash"),
+            "total_cases": len(results),
+            "total_checked": v_checked,
+            "passed": v_passed,
+            "escalated": v_escalated,
+            "exempt": v_exempt,
+            "disabled": v_disabled,
+            "pass_rate_pct": pass_rate,
+            "avg_latency_ms": avg_v_lat,
+        }
+
         return BenchmarkSummary(
             timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
             mode="simulation",
@@ -600,6 +720,7 @@ class BenchmarkEvaluator:
             usd_cny_rate=self.usd_cny_rate,
             config_snapshot=self._build_config_snapshot(),
             trace_topology_stats=trace_topology_stats,
+            verify_stats=verify_stats,
             results=results,
         )
 
@@ -679,6 +800,13 @@ class BenchmarkEvaluator:
                 is_case_escalated = False
                 cur_start_ms = lat_ms
 
+                case_verified = False
+                case_verify_score = None
+                case_verify_status = "disabled"
+                case_verify_failure_reason = ""
+                case_verify_judge = ""
+                case_verify_lat_ms = 0.0
+
                 async def call_model_api(target_m, target_p, max_tok):
                     if not target_p or not target_p.base_url:
                         return False, 0.0, "", 0, 0, f"未配置提供商或端点 (provider: {getattr(target_m, 'provider', 'none')})"
@@ -747,26 +875,66 @@ class BenchmarkEvaluator:
                         })
                         cur_start_ms += stage_dur_ms
 
-                        # 进行 Laya 质量验收判定
-                        if hasattr(self.router, "check") and ans_txt:
+                        # 读取质检验收策略
+                        vfy_cfg = (self.config_raw.get("policy", {}) or {}).get("verify", {})
+                        vfy_enabled = vfy_cfg.get("enabled", True)
+                        vfy_judge = vfy_cfg.get("judge_model", "deepseek-v4-flash")
+                        max_cap = float(vfy_cfg.get("max_capability", 77.5))
+                        chosen_cap = chosen_model.cap(cat_expected) if chosen_model else 50.0
+
+                        case_verify_judge = vfy_judge
+
+                        if not vfy_enabled:
+                            case_verify_status = "disabled"
+                        elif chosen_cap >= max_cap:
+                            case_verify_status = "exempt"
+                            case_verified = False
+                            raw_stages.append({
+                                "stage_index": 3,
+                                "stage_type": "verifier",
+                                "name": f"质量验收 ({vfy_judge})",
+                                "judge_model": vfy_judge,
+                                "provider": "judge",
+                                "status": "exempt",
+                                "start_ms": round(cur_start_ms, 2),
+                                "duration_ms": 0.0,
+                                "tokens": {"prompt": 0, "completion": 0, "total": 0},
+                                "cost_usd": 0.0,
+                                "detail": f"首选旗舰模型能力分 {chosen_cap:.1f} >= {max_cap}，免检直通交付",
+                                "snippet": "旗舰模型能力达标，命中免检规则直通交付",
+                            })
+                        elif hasattr(self.router, "check") and ans_txt:
                             t_chk_0 = time.perf_counter()
                             try:
                                 verdict = await loop.run_in_executor(None, lambda: self.router.check(route_res, prompt, ans_txt))
                                 chk_dur_ms = round((time.perf_counter() - t_chk_0) * 1000.0, 2)
                                 should_escalate = getattr(verdict, "escalate", False)
+                                p_adeq = getattr(verdict, "p_adequate", 0.5)
+                                fail_type = getattr(verdict, "failure", "fine")
+                                v_reason = getattr(verdict, "reason", "质量验收裁决完成")
+
+                                case_verified = True
+                                case_verify_score = round(p_adeq, 2)
+                                case_verify_status = "escalated" if should_escalate else "passed"
+                                case_verify_failure_reason = v_reason if should_escalate else ""
+                                case_verify_lat_ms = chk_dur_ms
 
                                 raw_stages.append({
                                     "stage_index": 3,
                                     "stage_type": "verifier",
-                                    "name": "Laya 质量验收裁决 (Adequacy Check)",
-                                    "provider": "local_engine",
+                                    "name": f"质量验收裁决 ({vfy_judge})",
+                                    "judge_model": vfy_judge,
+                                    "provider": "judge",
                                     "status": "escalate_recommended" if should_escalate else "adequate",
+                                    "p_adequate": p_adeq,
+                                    "failure_type": fail_type,
+                                    "reason": v_reason,
                                     "start_ms": round(cur_start_ms, 2),
                                     "duration_ms": chk_dur_ms,
                                     "tokens": {"prompt": 0, "completion": 0, "total": 0},
                                     "cost_usd": 0.0,
-                                    "detail": f"满意度评分: {getattr(verdict, 'p_adequate', 'N/A')}, 是否升级: {should_escalate}",
-                                    "snippet": getattr(verdict, "reason", "质量验收裁决完成"),
+                                    "detail": f"满意度评分: {p_adeq:.2f}, 裁决结论: {'建议升级' if should_escalate else '合格通过'}, 缺陷: {fail_type}",
+                                    "snippet": v_reason,
                                 })
                                 cur_start_ms += chk_dur_ms
 
@@ -797,8 +965,8 @@ class BenchmarkEvaluator:
                                             "detail": f"升级至高阶模型调用成功 (200 OK)",
                                             "snippet": (e_txt[:140] + "...") if len(e_txt) > 140 else e_txt,
                                         })
-                            except Exception:
-                                pass
+                            except Exception as chk_e:
+                                log.warning("Real benchmark verify error: %s", chk_e)
                     else:
                         # 首选模型调用失败或超时，记录并尝试容灾降级调度
                         err_msg = err
@@ -928,6 +1096,12 @@ class BenchmarkEvaluator:
                     trace_chain=full_spans,
                     hop_count=hop_count,
                     escalated=is_case_escalated,
+                    verified=case_verified,
+                    verify_score=case_verify_score,
+                    verify_status=case_verify_status,
+                    verify_failure_reason=case_verify_failure_reason,
+                    verify_judge=case_verify_judge,
+                    verify_latency_ms=case_verify_lat_ms,
                 )
 
             tasks = [run_single_case(i, case) for i, case in enumerate(cases)]
@@ -966,6 +1140,28 @@ class BenchmarkEvaluator:
             "avg_escalate_ms": round(sum(s["duration_ms"] for r in results for s in r.trace_chain if s.get("stage_type") in ("escalate_model", "fallback_model", "retry_model")) / max(1, sum(1 for r in results if r.escalated)), 2) if any(r.escalated for r in results) else 0.0,
         }
 
+        # 构造质检验收统计概览
+        vfy_cfg = (self.config_raw.get("policy", {}) or {}).get("verify", {})
+        v_passed = sum(1 for r in results if r.verify_status == "passed")
+        v_escalated = sum(1 for r in results if r.verify_status == "escalated")
+        v_exempt = sum(1 for r in results if r.verify_status == "exempt")
+        v_disabled = sum(1 for r in results if r.verify_status == "disabled")
+        v_checked = v_passed + v_escalated
+        pass_rate = round((v_passed / v_checked * 100.0), 1) if v_checked > 0 else (100.0 if v_exempt > 0 else 0.0)
+        avg_v_lat = round(sum(r.verify_latency_ms for r in results if r.verified) / max(1, v_checked), 1)
+        verify_stats = {
+            "enabled": vfy_cfg.get("enabled", True),
+            "judge_model": vfy_cfg.get("judge_model", "deepseek-v4-flash"),
+            "total_cases": len(results),
+            "total_checked": v_checked,
+            "passed": v_passed,
+            "escalated": v_escalated,
+            "exempt": v_exempt,
+            "disabled": v_disabled,
+            "pass_rate_pct": pass_rate,
+            "avg_latency_ms": avg_v_lat,
+        }
+
         return BenchmarkSummary(
             timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
             mode="real_benchmark",
@@ -986,6 +1182,7 @@ class BenchmarkEvaluator:
             usd_cny_rate=self.usd_cny_rate,
             config_snapshot=self._build_config_snapshot(),
             trace_topology_stats=trace_topology_stats,
+            verify_stats=verify_stats,
             results=list(results),
         )
 

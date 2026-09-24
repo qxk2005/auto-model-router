@@ -969,7 +969,15 @@ async def test_single_prompt(req: SingleTestRequest):
                                         verdict = await asyncio.to_thread(router.check, route_res, prompt, ans_to_check)
                                         verify_ms = round((time.perf_counter() - t_chk_0) * 1000.0, 2)
                                         chk_done_l = add_log("INFO", f"Laya 质量判定完成: 满意度预估={getattr(verdict, 'p_adequate', 'N/A')}, 是否建议升级={getattr(verdict, 'escalate', False)}, 耗时={verify_ms}ms", "verify")
-                                        yield f"data: {json.dumps({'type': 'verify_done', 'log': chk_done_l, 'verification_ms': verify_ms, 'verdict': {'escalate': getattr(verdict, 'escalate', False), 'p_adequate': getattr(verdict, 'p_adequate', 0.5), 'failure': getattr(verdict, 'failure', 'unknown')}}, ensure_ascii=False)}\n\n"
+                                        dispatch_entry["verification"] = {
+                                            "verified": True,
+                                            "score": getattr(verdict, "p_adequate", 0.5),
+                                            "escalate": getattr(verdict, "escalate", False),
+                                            "failure": getattr(verdict, "failure", "fine"),
+                                            "reason": getattr(verdict, "reason", ""),
+                                            "latency_ms": verify_ms,
+                                        }
+                                        yield f"data: {json.dumps({'type': 'verify_done', 'log': chk_done_l, 'verification_ms': verify_ms, 'verdict': {'escalate': getattr(verdict, 'escalate', False), 'p_adequate': getattr(verdict, 'p_adequate', 0.5), 'failure': getattr(verdict, 'failure', 'unknown'), 'reason': getattr(verdict, 'reason', '')}}, ensure_ascii=False)}\n\n"
 
                                         # 若判定需要升级 (escalate == True)，触发第二跳高阶模型升级调用
                                         if getattr(verdict, "escalate", False):
@@ -1372,6 +1380,14 @@ async def test_single_prompt(req: SingleTestRequest):
                                 verdict = await asyncio.to_thread(router.check, route_res, prompt, ans_to_check)
                                 verify_ms = round((time.perf_counter() - t_chk_0) * 1000.0, 2)
                                 add_log("INFO", f"Laya 质量判定完成: 满意度预估={getattr(verdict, 'p_adequate', 'N/A')}, 是否建议升级={getattr(verdict, 'escalate', False)}, 耗时={verify_ms}ms", "verify")
+                                dispatch_entry["verification"] = {
+                                    "verified": True,
+                                    "score": getattr(verdict, "p_adequate", 0.5),
+                                    "escalate": getattr(verdict, "escalate", False),
+                                    "failure": getattr(verdict, "failure", "fine"),
+                                    "reason": getattr(verdict, "reason", ""),
+                                    "latency_ms": verify_ms,
+                                }
 
                                 # 若判定需要升级 (escalate == True)，触发第二跳高阶模型升级调用
                                 if getattr(verdict, "escalate", False):

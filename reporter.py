@@ -64,6 +64,15 @@ class ReportGenerator:
         cur_sym = getattr(summary, "currency_symbol", "¥")
         usd_rate = getattr(summary, "usd_cny_rate", 7.20)
 
+        # Extract Verification Stats
+        v_stats = getattr(summary, "verify_stats", {}) or {}
+        v_enabled = v_stats.get("enabled", True)
+        v_judge = v_stats.get("judge_model", "deepseek-v4-flash")
+        v_pass_rate = v_stats.get("pass_rate_pct", 100.0)
+        v_esc = v_stats.get("escalated", 0)
+        v_exempt = v_stats.get("exempt", 0)
+        v_avg_lat = v_stats.get("avg_latency_ms", 0.0)
+
         # Build Config Snapshot Section
         snapshot = getattr(summary, "config_snapshot", {}) or {}
         router_params = snapshot.get("router_params", {})
@@ -865,6 +874,7 @@ class ReportGenerator:
       opacity: 0.7;
     }}
     .jaeger-minimap-bar.classifier {{ background: #0284c7; }}
+    .jaeger-minimap-bar.verifier {{ background: #059669; }}
     .jaeger-minimap-bar.escalate {{ background: #f59e0b; }}
     .jaeger-minimap-bar.error {{ background: #ef4444; }}
 
@@ -946,6 +956,7 @@ class ReportGenerator:
     .jaeger-color-strip.svc-amra {{ background: #7c3aed; }}
     .jaeger-color-strip.svc-laya {{ background: #00a396; }}
     .jaeger-color-strip.svc-primary {{ background: #00a396; }}
+    .jaeger-color-strip.svc-verifier {{ background: #059669; }}
     .jaeger-color-strip.svc-escalate {{ background: #f59e0b; }}
     .jaeger-color-strip.svc-error {{ background: #ef4444; }}
 
@@ -1012,6 +1023,7 @@ class ReportGenerator:
     .jaeger-bar-item.svc-amra {{ background: #7c3aed; }}
     .jaeger-bar-item.svc-laya {{ background: #00a396; }}
     .jaeger-bar-item.svc-primary {{ background: #00a396; }}
+    .jaeger-bar-item.svc-verifier {{ background: #059669; }}
     .jaeger-bar-item.svc-escalate {{ background: #f59e0b; }}
     .jaeger-bar-item.svc-error {{ background: #ef4444; }}
 
@@ -1193,6 +1205,12 @@ class ReportGenerator:
         <div class="kpi-value" style="color: #38bdf8;">{summary.alignment_rate}%</div>
         <div class="kpi-sub">总测试用例数: {summary.total_cases} 条 (汇率: 1 USD = {usd_rate} CNY)</div>
       </div>
+
+      <div class="kpi-card">
+        <div class="kpi-label"><span>🎯 质检验收概况</span><span>{v_judge}</span></div>
+        <div class="kpi-value" style="color: {'#059669' if v_enabled else '#64748b'};">{f'{v_pass_rate}%' if v_enabled else '未启用'}</div>
+        <div class="kpi-sub">{'初验合格 • 升级: ' + str(v_esc) + ' 例 | 免检: ' + str(v_exempt) + ' 例 (' + str(v_avg_lat) + 'ms)' if v_enabled else '策略未启用质检保护'}</div>
+      </div>
     </section>
 
     <!-- Route Trace Flow Topology Panel (Macro View) -->
@@ -1359,6 +1377,7 @@ class ReportGenerator:
               <th>Prompt 摘要</th>
               <th>Laya 分类 (难度/耗时)</th>
               <th>选定路由模型</th>
+              <th>质检验收</th>
               <th>路由成本 ({cur_sym})</th>
               <th>节省幅度</th>
               <th>决策状态</th>
@@ -1582,6 +1601,20 @@ class ReportGenerator:
           ? `<span class="badge" style="background:#f5f3ff; color:#7c3aed; font-size:11px; padding:2px 8px;">🔄 2跳 (升级/容灾)</span>`
           : `<span class="badge" style="background:#ecfdf5; color:#059669; font-size:11px; padding:2px 8px;">✓ 1跳直达</span>`;
 
+        const vStatus = r.verify_status || (r.verified ? (r.escalated ? "escalated" : "passed") : "disabled");
+        let vBadge = "";
+        if (vStatus === "passed") {{
+          const scoreStr = r.verify_score !== undefined && r.verify_score !== null ? r.verify_score.toFixed(2) : "合格";
+          vBadge = `<span class="badge" style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; font-size:11px; padding:2px 8px;" title="裁决官: ${{r.verify_judge || 'Judge'}} | 满意度评分: ${{scoreStr}}">✓ 验收合格 (${{scoreStr}})</span>`;
+        }} else if (vStatus === "escalated") {{
+          const scoreStr = r.verify_score !== undefined && r.verify_score !== null ? r.verify_score.toFixed(2) : "不足";
+          vBadge = `<span class="badge" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a; font-size:11px; padding:2px 8px;" title="${{r.verify_failure_reason || '质量未达标'}} | 评分: ${{scoreStr}}">🔄 未达标升级 (${{scoreStr}})</span>`;
+        }} else if (vStatus === "exempt") {{
+          vBadge = `<span class="badge" style="background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; font-size:11px; padding:2px 8px;" title="高阶旗舰模型免检直达">⚡ 旗舰免检</span>`;
+        }} else {{
+          vBadge = `<span class="badge" style="background:#f8fafc; color:#94a3b8; font-size:11px; padding:2px 8px;">— 未启用</span>`;
+        }}
+
         tr.innerHTML = `
           <td style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);">${{r.case_id}}</td>
           <td><span class="tag" style="background: #f1f5f9; color: var(--text-muted); border: 1px solid #e2e8f0;">${{r.category}}</span></td>
@@ -1592,6 +1625,7 @@ class ReportGenerator:
             <span style="color: var(--text-muted); font-size: 11px; margin-left: 4px;">(${{r.classifier_latency_ms}}ms)</span>
           </td>
           <td><span class="model-badge">${{r.chosen_model}}</span></td>
+          <td>${{vBadge}}</td>
           <td style="font-family: var(--font-mono); color: var(--text-main);">${{r.cost_router > 0 ? '{cur_sym}'+r.cost_router.toFixed(5) : '{cur_sym}0.00 (免费)'}}</td>
           <td class="saving-cell">${{r.savings_pct > 0 ? '+'+r.savings_pct+'%' : '0%'}}</td>
           <td>${{statusBadge}}</td>
@@ -1635,6 +1669,7 @@ class ReportGenerator:
           const widthPct = Math.min(100 - leftPct, Math.max(1, (stDur / totDur) * 100));
           let bCls = "primary";
           if (sp.stage_type === "classifier") bCls = "classifier";
+          else if (sp.stage_type === "verifier") bCls = "verifier";
           else if (sp.stage_type === "escalate_model" || sp.status === "escalated" || sp.status === "escalate_recommended") bCls = "escalate";
           else if (sp.status === "error" || sp.status === "timeout") bCls = "error";
 
@@ -1654,6 +1689,7 @@ class ReportGenerator:
           
           let colorClass = "svc-primary";
           if (isError) colorClass = "svc-error";
+          else if (sp.stage_type === "verifier" || sp.service === "verifier") colorClass = "svc-verifier";
           else if (isEscalate) colorClass = "svc-escalate";
           else if (sp.service === "amra") colorClass = "svc-amra";
           else if (sp.service === "laya") colorClass = "svc-laya";
