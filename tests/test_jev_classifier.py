@@ -256,3 +256,98 @@ def test_api_status_adaptive_to_jev(monkeypatch):
     assert "jev-pro-v1" in st["engine_display"]
     assert "https://jev-ai.pro/api/v1" in st["endpoint_display"]
 
+
+def test_evaluator_and_reporter_adaptive_to_jev():
+    from evaluator import BenchmarkEvaluator, BenchmarkSummary, CaseResult
+    from reporter import ReportGenerator
+
+    # 1. 验证 evaluator snapshot 中能够正确输出 is_jev 与 jev_params
+    cfg = {
+        "policy": {
+            "name": "F_expected",
+            "classifier": {
+                "backend": "jev",
+                "request_chars": 6000,
+                "jev": {
+                    "base_url": "https://jev-ai.pro/api/v1/",
+                    "model": "jev-latest",
+                    "api_key": "sk_jev-ai_secret12345678",
+                }
+            },
+            "verify": {
+                "enabled": True,
+                "judge_model": "jev"
+            }
+        }
+    }
+    runner = BenchmarkEvaluator(None, None, None, config_raw=cfg)
+    snapshot = runner._build_config_snapshot()
+    assert snapshot["is_jev"] is True
+    assert snapshot["engine_name"] == "Jev"
+    assert "jev_params" in snapshot
+    assert snapshot["jev_params"]["model"] == "jev-latest"
+    assert "已鉴权绑定" in snapshot["jev_params"]["auth_status"]
+
+    # 2. 验证 reporter 生成的 HTML 是否全面自适应 Jev
+    summary = BenchmarkSummary(
+        timestamp="2026-09-28 15:30:00",
+        mode="simulation",
+        total_cases=2,
+        successful_cases=2,
+        total_tokens=300,
+        cost_router_total=0.08,
+        cost_expensive_total=0.20,
+        cost_cheap_total=0.01,
+        total_savings_usd=0.12,
+        total_savings_pct=60.0,
+        avg_classifier_latency_ms=45.2,
+        avg_total_latency_s=0.5,
+        alignment_rate=95.0,
+        category_breakdown={"coding": {"total": 2, "savings_usd": 0.12, "cheap_count": 1, "exp_count": 1}},
+        model_distribution={"deepseek-v4-flash": 1, "deepseek-v4-pro": 1},
+        results=[
+            CaseResult(
+                case_id="case_1",
+                category="coding",
+                difficulty_tag="easy",
+                prompt="写一个排序算法",
+                expected_tier="cheap",
+                detected_category="coding",
+                detected_difficulty=0.3,
+                detected_stakes=0.2,
+                classifier_latency_ms=45.0,
+                chosen_model="deepseek-v4-flash",
+                chosen_provider="deepseek",
+                decision_reason="policy arbitration",
+                prompt_tokens=100,
+                output_tokens=50,
+                total_tokens=150,
+                cost_router=0.001,
+                cost_expensive=0.01,
+                cost_cheap=0.001,
+                savings_usd=0.009,
+                savings_pct=90.0,
+                is_aligned=True,
+            )
+        ],
+        verify_stats={"enabled": True, "judge_model": "jev", "passed": 1, "pass_rate_pct": 100.0, "escalated": 0, "exempt": 0, "avg_latency_ms": 35.0},
+        config_snapshot=snapshot,
+    )
+
+    html = ReportGenerator().render_html(summary)
+
+    # 验证关键自适应文案
+    assert "Auto-LLM-Router 评估报告 (Jev 云端智能驱动)" in html
+    assert "🧠 Jev 云端决策引擎配置" in html
+    assert "Jev 智能分级路由 (Auto-Router)" in html
+    assert "Jev 意图与特征分类" in html
+    assert "Jev 决策 (难度/耗时)" in html
+    assert "🧠 Jev 决策平均耗时" in html
+    assert "Cloud API" in html
+    assert "Jev (云端裁决模型)" in html
+    assert "TypeSafe REST API (免本地显存与硬件算力占用)" in html
+
+    # 验证不应该再含有旧的 Laya 硬件写死标题
+    assert "⚡ Laya 分类器与硬件加速配置" not in html
+    assert "Laya 智能分级路由 (Auto-Router)" not in html
+
