@@ -2219,4 +2219,24 @@ tr.model-row-disabled:hover {
   margin-top: 3px;
 }
 
+/* 策略设置区块交互动效与高亮 */
+@keyframes sectionCardGlow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(2, 132, 199, 0.45);
+    border-color: var(--primary);
+  }
+  40% {
+    box-shadow: 0 0 0 8px rgba(2, 132, 199, 0.16);
+    border-color: var(--primary);
+  }
+  100% {
+    box-shadow: var(--card-shadow);
+    border-color: var(--card-border);
+  }
+}
+
+.section-card-highlight {
+  animation: sectionCardGlow 1.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 

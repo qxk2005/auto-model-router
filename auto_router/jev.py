@@ -42,8 +42,63 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_JEV_BASE_URL = "https://jev-ai.pro/api/v1/"
 ENDPOINT = os.environ.get("AUTO_ROUTER_JEV_URL", "https://api.typesafe.ai/v1/systemone")
 MODEL = os.environ.get("AUTO_ROUTER_JEV_MODEL", "jev-latest")
+
+DEFAULT_REQUEST_HEADERS: dict[str, str] = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+}
+
+
+def normalize_jev_url(url: str | None = None) -> dict[str, str]:
+    """Normalize various user-provided Jev server URLs into standard endpoints.
+
+    Supports inputs such as:
+    - ``https://jev-ai.pro/api/v1/``
+    - ``https://jev-ai.pro/api``
+    - ``https://jev-ai.pro/api/v1/systemone``
+    - ``https://api.typesafe.ai``
+    """
+    raw = (url or "").strip()
+    if not raw:
+        raw = (
+            os.environ.get("JEV_AI_URL")
+            or os.environ.get("AUTO_ROUTER_JEV_URL")
+            or os.environ.get("TYPESAFE_BASE_URL")
+            or DEFAULT_JEV_BASE_URL
+        ).strip()
+
+    clean = raw.rstrip("/")
+
+    if clean.endswith("/systemone"):
+        systemone_url = clean
+        base = clean[:-len("/systemone")].rstrip("/")
+        models_url = f"{base}/models"
+    elif clean.endswith("/models"):
+        models_url = clean
+        base = clean[:-len("/models")].rstrip("/")
+        systemone_url = f"{base}/systemone"
+    elif clean.endswith("/v1"):
+        base = clean
+        systemone_url = f"{base}/systemone"
+        models_url = f"{base}/models"
+    elif clean.endswith("/api"):
+        base = f"{clean}/v1"
+        systemone_url = f"{base}/systemone"
+        models_url = f"{base}/models"
+    else:
+        base = f"{clean}/v1"
+        systemone_url = f"{base}/systemone"
+        models_url = f"{base}/models"
+
+    return {
+        "raw_url": raw,
+        "base_url": base,
+        "systemone_url": systemone_url,
+        "models_url": models_url,
+    }
 
 #: How much of each field is sent at all. The documented budget is 64k tokens
 #: for state plus every question, and 32k for state plus the longest question
@@ -392,8 +447,12 @@ def _post(state: dict, questions: dict, api_key: str | None, timeout: float,
     started = time.time()
     last: Exception = RuntimeError("no attempt made")
     for attempt in range(max(1, attempts)):
-        req = urllib.request.Request(ENDPOINT, data=body, headers={
-            "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+        headers = {
+            **DEFAULT_REQUEST_HEADERS,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        }
+        req = urllib.request.Request(ENDPOINT, data=body, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read()), time.time() - started
@@ -623,24 +682,230 @@ class LocalLayaClassifier:
             return FALLBACK
 
 
+class JevClassifier:
+    """Classifier and Judge powered by Jev (TypeSafe System One compatible API/SDK).
+
+    Supports custom server URLs (e.g. https://jev-ai.pro/api/v1/), custom API keys,
+    and works both as a routing classifier and as an adequacy judge.
+    """
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model: str = "jev-latest",
+        timeout: float = 20.0,
+        attempts: int = MAX_ATTEMPTS,
+    ):
+        self.url_info = normalize_jev_url(base_url)
+        self.base_url = self.url_info["base_url"]
+        self.systemone_url = self.url_info["systemone_url"]
+        self.models_url = self.url_info["models_url"]
+        self.api_key = (
+            api_key
+            or os.environ.get("JEV_AI_API_KEY")
+            or os.environ.get("TYPESAFE_API_KEY")
+        )
+        self.model = model or "jev-latest"
+        self.timeout = float(timeout)
+        self.attempts = max(1, int(attempts))
+
+    @classmethod
+    def from_config(cls, cfg: dict | None) -> "JevClassifier":
+        cfg = cfg or {}
+        jev_cfg = cfg.get("jev") if isinstance(cfg.get("jev"), dict) else cfg
+        base_url = (
+            jev_cfg.get("base_url")
+            or je_url if (je_url := jev_cfg.get("url")) else None
+            or cfg.get("base_url")
+            or os.environ.get("JEV_AI_URL")
+            or os.environ.get("AUTO_ROUTER_JEV_URL")
+        )
+        api_key = (
+            jev_cfg.get("api_key")
+            or cfg.get("api_key")
+            or os.environ.get("JEV_AI_API_KEY")
+            or os.environ.get("TYPESAFE_API_KEY")
+        )
+        model = jev_cfg.get("model") or cfg.get("model") or os.environ.get("AUTO_ROUTER_JEV_MODEL", "jev-latest")
+        timeout = float(jev_cfg.get("timeout") or cfg.get("timeout") or 20.0)
+        return cls(base_url=base_url, api_key=api_key, model=model, timeout=timeout)
+
+    def test_connection(self) -> dict:
+        """Probe GET /models without running inference (official checklist recommended)."""
+        key = self.api_key
+        if not key:
+            return {"status": "error", "error": "未配置 Jev API Key (可在环境变量 JEV_AI_API_KEY 或配置中设置)"}
+        headers = {
+            **DEFAULT_REQUEST_HEADERS,
+            "Authorization": f"Bearer {key}",
+        }
+
+        last_error = None
+        for attempt in range(3):
+            req = urllib.request.Request(self.models_url, headers=headers)
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if attempt > 0 else urllib.request.build_opener()
+            started = time.perf_counter()
+            try:
+                with opener.open(req, timeout=min(10.0, self.timeout)) as resp:
+                    elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+                    data = json.loads(resp.read().decode("utf-8"))
+                    models = data if isinstance(data, list) else data.get("models") or data.get("data") or []
+                    return {
+                        "status": "ok",
+                        "latency_ms": elapsed_ms,
+                        "models": models,
+                        "url": self.models_url,
+                        "target_model": self.model,
+                    }
+            except urllib.error.HTTPError as exc:
+                err_body = ""
+                msg = exc.reason
+                try:
+                    raw_bytes = exc.read()
+                    err_body = raw_bytes.decode("utf-8", errors="ignore")
+                    parsed = json.loads(err_body)
+                    if isinstance(parsed, dict):
+                        msg = parsed.get("message") or parsed.get("statusMessage") or parsed.get("error") or msg
+                except Exception:
+                    pass
+
+                if exc.code == 401:
+                    friendly_err = f"HTTP 401 密钥鉴权失败: API Key 无效或未授权 ({msg})"
+                elif exc.code == 404:
+                    friendly_err = f"HTTP 404 端点未找到: 请检查服务器地址格式是否正确 ({self.models_url})"
+                elif exc.code == 403:
+                    friendly_err = f"HTTP 403 访问受限: 账户权限受阻或需充值 ({msg})"
+                else:
+                    friendly_err = f"HTTP {exc.code} {exc.reason}: {msg}"
+
+                return {
+                    "status": "error",
+                    "error": friendly_err,
+                    "url": self.models_url,
+                    "http_status": exc.code,
+                    "raw_error": err_body[:300],
+                }
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.3 * (attempt + 1))
+
+        err_msg = str(last_error) if last_error else "连接中断"
+        if isinstance(last_error, urllib.error.URLError):
+            err_msg = f"网络连接失败 ({last_error.reason})"
+        return {
+            "status": "error",
+            "error": f"无法连接至 Jev 服务器: {err_msg}",
+            "url": self.models_url,
+        }
+
+    def _post(self, state: dict, questions: dict, timeout: float | None = None) -> tuple[dict, float]:
+        key = self.api_key
+        if not key:
+            raise RuntimeError("JEV_AI_API_KEY or TYPESAFE_API_KEY is not set")
+        timeout = timeout or self.timeout
+        body = json.dumps({"model": self.model, "state": state, "questions": questions}).encode()
+        started = time.time()
+        last: Exception = RuntimeError("no attempt made")
+        for attempt in range(self.attempts):
+            headers = {
+                **DEFAULT_REQUEST_HEADERS,
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            }
+            req = urllib.request.Request(self.systemone_url, data=body, headers=headers)
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if attempt > 0 else urllib.request.build_opener()
+            try:
+                with opener.open(req, timeout=timeout) as resp:
+                    return json.loads(resp.read()), time.time() - started
+            except urllib.error.HTTPError as exc:
+                last = exc
+                if exc.code not in RETRY_STATUS or attempt == self.attempts - 1:
+                    raise
+                time.sleep(_retry_after_seconds(exc, attempt))
+            except Exception as exc:
+                last = exc
+                if attempt == self.attempts - 1:
+                    raise
+                time.sleep(0.5 * (attempt + 1))
+        raise last
+
+    def __call__(self, request: str, context: str = "") -> Classification:
+        started = time.perf_counter()
+        try:
+            state = {"request": scrub(request, REQUEST_CHARS),
+                     "context": scrub(context, CONTEXT_CHARS) or "(new conversation)"}
+            payload, latency = self._post(state, QUESTIONS, self.timeout)
+            a = payload["answers"]
+            usage = payload.get("usage") or {}
+            return Classification(
+                category=a["category"]["choice"],
+                category_probs=a["category"].get("probabilities") or {},
+                category_confidence=_confidence(a["category"]),
+                difficulty=_score01(a["difficulty"], len(QUESTIONS["difficulty"]["criteria"])),
+                difficulty_confidence=_confidence(a["difficulty"]),
+                needs_tools=float(a["needs_tools"]["noul"]),
+                needs_vision=float(a["needs_vision"]["noul"]),
+                needs_long_context=float(a["needs_long_context"]["noul"]),
+                follow_up=float(a["follow_up"]["noul"]),
+                stakes=_score01(a["stakes"], len(QUESTIONS["stakes"]["criteria"])),
+                latency_s=latency or (time.perf_counter() - started),
+                model=str(payload.get("model") or self.model),
+                input_tokens=int(usage.get("input_tokens") or 0),
+                output_tokens=int(usage.get("output_tokens") or 0),
+                raw=a,
+                source_name=f"jev[{self.model}]",
+            )
+        except Exception as exc:
+            logger.warning("Jev classification failed: %s; returning FALLBACK", exc)
+            return FALLBACK
+
+    def judge(self, request: str, response: str, category: str = "") -> Judgement:
+        started = time.perf_counter()
+        try:
+            state = {"request": scrub(request, REQUEST_CHARS), "response": scrub(response, RESPONSE_CHARS)}
+            questions = verify_questions(category) if category else JUDGE_QUESTION
+            payload, latency = self._post(state, questions, self.timeout)
+            answers = payload["answers"]
+            usage = payload.get("usage") or {}
+            failure_answer = answers.get("failure") or {}
+            choice = failure_answer.get("choice")
+            return Judgement(
+                p_adequate=float(answers["adequate"]["noul"]),
+                latency_s=latency or (time.perf_counter() - started),
+                failure=str(choice) if choice in FAILURE_OPTIONS else "unknown",
+                failure_probs={k: float(v) for k, v in (failure_answer.get("probabilities") or {}).items()},
+                model=str(payload.get("model") or self.model),
+                input_tokens=int(usage.get("input_tokens") or 0),
+                output_tokens=int(usage.get("output_tokens") or 0),
+            )
+        except Exception as exc:
+            logger.warning("Jev judge failed: %s", exc)
+            return Judgement(0.5, 0.0, failed=True)
+
+
 def classifier_from_config(policy: dict | None):
     """Build the selected classifier backend from ``policy.classifier``.
 
-    ``local`` uses Laya on CUDA/MPS/CPU, ``hosted`` uses the existing TypeSafe/Jev API,
+    ``local``/``laya`` uses Laya on CUDA/MPS/CPU, ``jev``/``hosted`` uses Jev/TypeSafe API,
     and ``heuristic`` disables model inference.
     """
     cfg = (policy or {}).get("classifier") or {}
     backend = str(cfg.get("backend") or "").lower()
     if not backend:
-        return classify if os.environ.get("TYPESAFE_API_KEY") else None
-    if backend == "local":
+        if cfg.get("jev") or os.environ.get("JEV_AI_API_KEY") or os.environ.get("TYPESAFE_API_KEY"):
+            return JevClassifier.from_config(cfg)
+        return None
+    if backend in {"local", "laya"}:
         model_name = str(cfg.get("model") or "convaiinnovations/laya")
         threads = int(cfg.get("threads") or 4)
         device = str(cfg.get("device") or "auto")
         subfolder = cfg.get("subfolder", "multilingual")
         return LocalLayaClassifier(model=model_name, threads=threads, device=device, subfolder=subfolder)
-    if backend in {"hosted", "jev"}:
+    if backend == "hosted" and not cfg.get("jev") and not cfg.get("base_url"):
         return classify
+    if backend in {"hosted", "jev", "remote"}:
+        return JevClassifier.from_config(cfg)
     if backend in {"heuristic", "none", "disabled"}:
         return None
     raise ValueError(f"unknown classifier backend {backend!r}; use local, hosted, or heuristic")
@@ -659,7 +924,7 @@ class Judgement:
     """
 
     p_adequate: float
-    latency_s: float
+    latency_s: float = 0.0
     failed: bool = False
     failure: str = "unknown"
     failure_probs: dict[str, float] = field(default_factory=dict)
@@ -697,3 +962,6 @@ def judge(request: str, response: str, *, api_key: str | None = None, timeout: f
         )
     except (urllib.error.URLError, KeyError, TypeError, ValueError, RuntimeError, TimeoutError, OSError):
         return Judgement(0.5, 0.0, failed=True)
+
+
+classify.judge = judge

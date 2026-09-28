@@ -154,7 +154,13 @@ class BenchmarkEvaluator:
             hw_tag = f"CPU Multi-threading ({platform.machine()})"
 
         backend = policy_cfg.get("classifier", {}).get("backend", "local")
-        backend_display = "local (本地 Laya 引擎)" if backend == "local" else ("typesafe (云端分类器)" if backend == "typesafe" else "mock (静态测试桩)")
+        if backend in ("jev", "hosted", "remote"):
+            backend_display = "jev (Jev AI 云端决策模型)"
+            hw_tag = f"Jev AI Cloud API ({policy_cfg.get('classifier', {}).get('jev', {}).get('model', 'jev-latest')})"
+        elif backend in ("local", "laya"):
+            backend_display = "local (本地 Laya 引擎)"
+        else:
+            backend_display = "heuristic (启发式规则)"
 
         router_params = {
             "policy_name": policy_name,
@@ -439,12 +445,23 @@ class BenchmarkEvaluator:
                 cat_info["exp_count"] += 1
 
             # 构建仿真模拟的完整执行链路 (Trace Chain)
-            dev_str = getattr(self.router.classifier, "actual_device", "mps").upper() if hasattr(self.router, "classifier") else "MPS"
+            is_jev = hasattr(self.router, "classifier") and (
+                hasattr(self.router.classifier, "systemone_url")
+                or getattr(self.router.classifier, "source_name", "").startswith("jev")
+            )
+            if is_jev:
+                clf_name = f"Jev 决策引擎 ({getattr(self.router.classifier, 'model', 'jev-latest')})"
+                clf_provider = "jev_cloud"
+            else:
+                dev_str = getattr(self.router.classifier, "actual_device", "mps").upper() if hasattr(self.router, "classifier") else "MPS"
+                clf_name = f"Laya 决策引擎 ({dev_str})"
+                clf_provider = "local_engine"
+
             raw_stages: list[dict] = [{
                 "stage_index": 1,
                 "stage_type": "classifier",
-                "name": f"Laya 决策引擎 ({dev_str})",
-                "provider": "local_engine",
+                "name": clf_name,
+                "provider": clf_provider,
                 "status": "success",
                 "start_ms": 0.0,
                 "duration_ms": round(lat_ms, 2),
@@ -819,12 +836,23 @@ class BenchmarkEvaluator:
                     total_classifier_latency += lat_ms
 
                     raw_stages: list[dict] = []
-                    dev_str = getattr(self.router.classifier, "actual_device", "mps").upper() if hasattr(self.router, "classifier") else "MPS"
+                    is_jev = hasattr(self.router, "classifier") and (
+                        hasattr(self.router.classifier, "systemone_url")
+                        or getattr(self.router.classifier, "source_name", "").startswith("jev")
+                    )
+                    if is_jev:
+                        clf_name = f"Jev 决策引擎 ({getattr(self.router.classifier, 'model', 'jev-latest')})"
+                        clf_provider = "jev_cloud"
+                    else:
+                        dev_str = getattr(self.router.classifier, "actual_device", "mps").upper() if hasattr(self.router, "classifier") else "MPS"
+                        clf_name = f"Laya 决策引擎 ({dev_str})"
+                        clf_provider = "local_engine"
+
                     raw_stages.append({
                         "stage_index": 1,
                         "stage_type": "classifier",
-                        "name": f"Laya 决策引擎 ({dev_str})",
-                        "provider": "local_engine",
+                        "name": clf_name,
+                        "provider": clf_provider,
                         "status": "success",
                         "start_ms": 0.0,
                         "duration_ms": round(lat_ms, 2),
