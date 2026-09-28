@@ -174,6 +174,30 @@ class BenchmarkEvaluator:
             "remaining_turns_horizon": int(policy_cfg.get("remaining_turns_horizon", 3)),
         }
 
+        is_jev = backend in ("jev", "hosted", "remote")
+        jev_cfg = policy_cfg.get("classifier", {}).get("jev", {})
+        jev_base_url = jev_cfg.get("base_url") or "https://jev-ai.pro/api/v1/"
+        jev_model = jev_cfg.get("model") or "jev-latest"
+        import os
+        raw_key = jev_cfg.get("api_key") or os.environ.get("JEV_AI_API_KEY", "")
+        if raw_key and len(raw_key) > 8:
+            key_status = f"已鉴权绑定 ({raw_key[:6]}...{raw_key[-4:]})"
+        elif raw_key:
+            key_status = "已鉴权绑定 (密钥生效中)"
+        else:
+            key_status = "未配置密钥 (免密/环境变量)"
+
+        jev_params = {
+            "classifier_backend": backend,
+            "classifier_backend_display": backend_display,
+            "base_url": jev_base_url,
+            "model": jev_model,
+            "auth_status": key_status,
+            "request_chars_cap": int(policy_cfg.get("request_chars_cap", policy_cfg.get("classifier", {}).get("request_chars", 6000))),
+            "architecture": "TypeSafe REST API (免本地显存与硬件算力占用)",
+            "hardware_tag": f"Jev AI Cloud API ({jev_model})",
+        }
+
         laya_params = {
             "classifier_backend": backend,
             "classifier_backend_display": backend_display,
@@ -186,27 +210,32 @@ class BenchmarkEvaluator:
         }
 
         active_models = []
-        for m in self.catalog.models:
-            if getattr(m, "launch_only", False):
-                continue
-            is_free = getattr(m, "free", False) or (m.prices and getattr(m.prices, "is_free", False))
-            p_in = getattr(m.prices, "input", 0.0) if m.prices else 0.0
-            p_out = getattr(m.prices, "output", 0.0) if m.prices else 0.0
-            active_models.append({
-                "name": m.name,
-                "provider": getattr(m, "provider", "none"),
-                "upstream_id": getattr(m, "upstream_id", m.name),
-                "context_tokens": getattr(m, "context_tokens", 128000),
-                "is_free": is_free,
-                "input_cny": p_in,
-                "output_cny": p_out,
-                "input_usd": round(p_in / self.usd_cny_rate, 4) if self.usd_cny_rate > 0 else 0.0,
-                "output_usd": round(p_out / self.usd_cny_rate, 4) if self.usd_cny_rate > 0 else 0.0,
-            })
+        if self.catalog and hasattr(self.catalog, "models"):
+            for m in self.catalog.models:
+                if getattr(m, "launch_only", False):
+                    continue
+                is_free = getattr(m, "free", False) or (m.prices and getattr(m.prices, "is_free", False))
+                p_in = getattr(m.prices, "input", 0.0) if m.prices else 0.0
+                p_out = getattr(m.prices, "output", 0.0) if m.prices else 0.0
+                active_models.append({
+                    "name": m.name,
+                    "provider": getattr(m, "provider", "none"),
+                    "upstream_id": getattr(m, "upstream_id", m.name),
+                    "context_tokens": getattr(m, "context_tokens", 128000),
+                    "is_free": is_free,
+                    "input_cny": p_in,
+                    "output_cny": p_out,
+                    "input_usd": round(p_in / self.usd_cny_rate, 4) if self.usd_cny_rate > 0 else 0.0,
+                    "output_usd": round(p_out / self.usd_cny_rate, 4) if self.usd_cny_rate > 0 else 0.0,
+                })
 
         return {
+            "is_jev": is_jev,
+            "engine_name": "Jev" if is_jev else "Laya",
+            "backend": backend,
             "router_params": router_params,
             "laya_params": laya_params,
+            "jev_params": jev_params,
             "active_models": active_models,
         }
 
@@ -293,8 +322,9 @@ class BenchmarkEvaluator:
             st_status = st.get("status", "ok")
 
             if st_type == "classifier":
-                svc = "laya"
-                op = "laya: /classify & /route"
+                is_st_jev = st.get("provider") == "jev_cloud" or "jev" in st.get("name", "").lower()
+                svc = "jev" if is_st_jev else "laya"
+                op = f"{svc}: /classify & /route"
             elif st_type == "verifier":
                 judge_m = st.get("judge_model") or "laya"
                 svc = "verifier"

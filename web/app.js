@@ -162,6 +162,14 @@ async function refreshStatus() {
       if (barLaya) {
         barLaya.title = "Jev 提示词分析";
       }
+      const benchLatTitle = document.getElementById("lblBenchDecisionLatTitle");
+      if (benchLatTitle) {
+        benchLatTitle.textContent = "Jev 决策平均耗时";
+      }
+      const benchDeviceSub = document.getElementById("resLayaDeviceSub");
+      if (benchDeviceSub) {
+        benchDeviceSub.textContent = "云端智能 (Cloud API)";
+      }
     } else {
       document.title = `Auto-LLM-Router 控制台 | Laya on ${hwName}`;
       const subTitle = document.getElementById("pageSubtitleText");
@@ -198,6 +206,14 @@ async function refreshStatus() {
       const barLaya = document.getElementById("barLaya");
       if (barLaya) {
         barLaya.title = "Laya 提示词分析";
+      }
+      const benchLatTitle = document.getElementById("lblBenchDecisionLatTitle");
+      if (benchLatTitle) {
+        benchLatTitle.textContent = "Laya 决策平均耗时";
+      }
+      const benchDeviceSub = document.getElementById("resLayaDeviceSub");
+      if (benchDeviceSub) {
+        benchDeviceSub.textContent = "硬件加速";
       }
     }
 

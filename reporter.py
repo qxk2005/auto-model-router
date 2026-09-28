@@ -68,7 +68,13 @@ class ReportGenerator:
         v_stats = getattr(summary, "verify_stats", {}) or {}
         v_enabled = v_stats.get("enabled", True)
         v_raw_judge = v_stats.get("judge_model", "deepseek-v4-flash")
-        v_judge_disp = "Laya (本地模型)" if v_raw_judge.lower() == "laya" else v_raw_judge
+        if v_raw_judge.lower() == "jev":
+            v_judge_disp = "Jev (云端裁决模型)"
+        elif v_raw_judge.lower() == "laya":
+            v_judge_disp = "Laya (本地模型)"
+        else:
+            v_judge_disp = v_raw_judge
+
         v_passed = v_stats.get("passed", 0)
         v_pass_rate = v_stats.get("pass_rate_pct", 100.0)
         v_esc = v_stats.get("escalated", 0)
@@ -79,10 +85,16 @@ class ReportGenerator:
         snapshot = getattr(summary, "config_snapshot", {}) or {}
         router_params = snapshot.get("router_params", {})
         laya_params = snapshot.get("laya_params", {})
+        jev_params = snapshot.get("jev_params", {})
         active_models = snapshot.get("active_models", [])
 
+        # 检查是否是 Jev 引擎
+        raw_backend = snapshot.get("backend") or laya_params.get("classifier_backend") or ""
+        is_jev = snapshot.get("is_jev", False) or (raw_backend in ("jev", "hosted", "remote")) or (bool(jev_params) and raw_backend == "jev")
+        engine_name = "Jev" if is_jev else "Laya"
+
         snapshot_html = ""
-        if router_params or laya_params or active_models:
+        if router_params or laya_params or jev_params or active_models:
             policy_disp = fix_mojibake(router_params.get("policy_display", router_params.get("policy_name", "F_expected")))
             rate_val = router_params.get("usd_cny_rate", usd_rate)
             stakes_val = router_params.get("stakes_usd", 2.0)
@@ -90,11 +102,85 @@ class ReportGenerator:
             mult_val = router_params.get("failure_cost_multiplier", 1.0)
             turns_val = router_params.get("remaining_turns_horizon", 3)
 
-            dev_disp = fix_mojibake(laya_params.get("device_display", "Apple Metal (MPS) GPU 加速 [推荐 M4 Max]"))
-            backend_disp = fix_mojibake(laya_params.get("classifier_backend_display", "local (本地 Laya 引擎)"))
-            ckpt_val = laya_params.get("checkpoint", "convaiinnovations/laya")
-            subfolder_val = laya_params.get("subfolder", "multilingual")
-            chars_val = laya_params.get("request_chars_cap", 6000)
+            if is_jev:
+                jev_base = fix_mojibake(jev_params.get("base_url", "https://jev-ai.pro/api/v1/"))
+                jev_model = fix_mojibake(jev_params.get("model", "jev-latest"))
+                jev_auth = fix_mojibake(jev_params.get("auth_status", "已鉴权绑定 (密钥生效中)"))
+                chars_val = jev_params.get("request_chars_cap", router_params.get("request_chars_cap", 6000))
+                backend_disp = fix_mojibake(jev_params.get("classifier_backend_display", "jev (Jev AI 云端决策模型)"))
+                arch_disp = fix_mojibake(jev_params.get("architecture", "TypeSafe REST API (免本地显存与硬件算力占用)"))
+
+                engine_box_html = f"""
+        <!-- Box 2: Jev Cloud Engine Params -->
+        <div class="snapshot-box">
+          <div class="snapshot-box-title">
+            <span>🧠 Jev 云端决策引擎配置</span>
+          </div>
+          <div class="snapshot-kv-list">
+            <div class="snapshot-kv-item" style="grid-column: span 2;">
+              <span class="snapshot-k">远程服务器端点 (Server Base URL)</span>
+              <span class="snapshot-v"><span class="snapshot-badge snapshot-badge-blue" style="font-family:var(--font-mono); font-size:11.5px;">{jev_base}</span></span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">分类器后端 (Backend)</span>
+              <span class="snapshot-v">{backend_disp}</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">云端决策模型版本 (Model)</span>
+              <span class="snapshot-v" style="font-weight:700; color:var(--primary); font-family:var(--font-mono);">{jev_model}</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">凭据安全状态 (Auth Status)</span>
+              <span class="snapshot-v"><span class="snapshot-badge snapshot-badge-green">{jev_auth}</span></span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">提示词截断字符上限 (Cap)</span>
+              <span class="snapshot-v">{chars_val} 字符</span>
+            </div>
+            <div class="snapshot-kv-item" style="grid-column: span 2;">
+              <span class="snapshot-k">推理加速架构 (Architecture)</span>
+              <span class="snapshot-v">{arch_disp}</span>
+            </div>
+          </div>
+        </div>
+                """
+            else:
+                dev_disp = fix_mojibake(laya_params.get("device_display", "Apple Metal (MPS) GPU 加速 [推荐 M4 Max]"))
+                backend_disp = fix_mojibake(laya_params.get("classifier_backend_display", "local (本地 Laya 引擎)"))
+                ckpt_val = laya_params.get("checkpoint", "convaiinnovations/laya")
+                subfolder_val = laya_params.get("subfolder", "multilingual")
+                chars_val = laya_params.get("request_chars_cap", 6000)
+
+                engine_box_html = f"""
+        <!-- Box 2: Laya Engine & Hardware Params -->
+        <div class="snapshot-box">
+          <div class="snapshot-box-title">
+            <span>⚡ Laya 分类器与硬件加速配置</span>
+          </div>
+          <div class="snapshot-kv-list">
+            <div class="snapshot-kv-item" style="grid-column: span 2;">
+              <span class="snapshot-k">硬件加速设备 (Hardware Device)</span>
+              <span class="snapshot-v"><span class="snapshot-badge snapshot-badge-green">{dev_disp}</span></span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">分类器后端 (Backend)</span>
+              <span class="snapshot-v">{backend_disp}</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">Checkpoint 权重分支</span>
+              <span class="snapshot-v">{ckpt_val} ({subfolder_val})</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">提示词截断字符上限 (Cap)</span>
+              <span class="snapshot-v">{chars_val} 字符</span>
+            </div>
+            <div class="snapshot-kv-item">
+              <span class="snapshot-k">推理加速架构</span>
+              <span class="snapshot-v">Metal MPS Non-Autoregressive</span>
+            </div>
+          </div>
+        </div>
+                """
 
             models_rows = []
             for m in active_models:
@@ -170,34 +256,7 @@ class ReportGenerator:
           </div>
         </div>
 
-        <!-- Box 2: Laya Engine & Hardware Params -->
-        <div class="snapshot-box">
-          <div class="snapshot-box-title">
-            <span>⚡ Laya 分类器与硬件加速配置</span>
-          </div>
-          <div class="snapshot-kv-list">
-            <div class="snapshot-kv-item" style="grid-column: span 2;">
-              <span class="snapshot-k">硬件加速设备 (Hardware Device)</span>
-              <span class="snapshot-v"><span class="snapshot-badge snapshot-badge-green">{dev_disp}</span></span>
-            </div>
-            <div class="snapshot-kv-item">
-              <span class="snapshot-k">分类器后端 (Backend)</span>
-              <span class="snapshot-v">{backend_disp}</span>
-            </div>
-            <div class="snapshot-kv-item">
-              <span class="snapshot-k">Checkpoint 权重分支</span>
-              <span class="snapshot-v">{ckpt_val} ({subfolder_val})</span>
-            </div>
-            <div class="snapshot-kv-item">
-              <span class="snapshot-k">提示词截断字符上限 (Cap)</span>
-              <span class="snapshot-v">{chars_val} 字符</span>
-            </div>
-            <div class="snapshot-kv-item">
-              <span class="snapshot-k">推理加速架构</span>
-              <span class="snapshot-v">Metal MPS Non-Autoregressive</span>
-            </div>
-          </div>
-        </div>
+        {engine_box_html}
       </div>
 
       <!-- Box 3: Active Routing Candidates Catalog Matrix -->
@@ -225,12 +284,32 @@ class ReportGenerator:
     </section>
     """
 
+        engine_title = f"{engine_name} 云端智能驱动" if is_jev else f"{engine_name} 驱动"
+        page_title = f"Auto-LLM-Router ({engine_name} 云端智能) 评估报告" if is_jev else f"Auto-LLM-Router ({engine_name} 驱动) 评估报告"
+        engine_badge_text = "Jev 云端决策 API 已连接" if is_jev else "M4 Max Metal 加速已激活"
+        if is_jev:
+            jev_m_tag = jev_params.get("model", "jev-latest") if jev_params else "jev-latest"
+            engine_desc_text = f"底座引擎: Jev AI ({jev_m_tag} • 云端智能决策)"
+            engine_kpi_badge = "Cloud API"
+            engine_kpi_sub = "远程云端高精度概率推理"
+            topo_phase_title = "🧠 阶段 1: Jev 云端智能决策中枢"
+        else:
+            engine_desc_text = "底座引擎: Laya (Apple Silicon M4 Max MPS 加速)"
+            engine_kpi_badge = "MPS"
+            engine_kpi_sub = "单次前向极速反射分类"
+            topo_phase_title = "🧠 阶段 1: 硬件加速决策中枢"
+
+        engine_router_label = f"{engine_name} 智能分级路由 (Auto-Router)"
+        engine_topo_node_title = f"{engine_name} 意图与特征分类"
+        engine_col_head = f"{engine_name} 决策 (难度/耗时)"
+        engine_footer_text = f"Auto-LLM-Router-{engine_name} • 高确定性交付与智能模型分流系统"
+
         template = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Auto-LLM-Router (Laya on Apple M4 Max) 评估报告</title>
+  <title>{page_title}</title>
   <style>
     :root {{
       --bg-main: #f8fafc;
@@ -1007,6 +1086,7 @@ class ReportGenerator:
     }}
     .jaeger-color-strip.svc-amra {{ background: #7c3aed; }}
     .jaeger-color-strip.svc-laya {{ background: #00a396; }}
+    .jaeger-color-strip.svc-jev {{ background: #7c3aed; }}
     .jaeger-color-strip.svc-primary {{ background: #00a396; }}
     .jaeger-color-strip.svc-verifier {{ background: #059669; }}
     .jaeger-color-strip.svc-escalate {{ background: #f59e0b; }}
@@ -1074,6 +1154,7 @@ class ReportGenerator:
     }}
     .jaeger-bar-item.svc-amra {{ background: #7c3aed; }}
     .jaeger-bar-item.svc-laya {{ background: #00a396; }}
+    .jaeger-bar-item.svc-jev {{ background: #7c3aed; }}
     .jaeger-bar-item.svc-primary {{ background: #00a396; }}
     .jaeger-bar-item.svc-verifier {{ background: #059669; }}
     .jaeger-bar-item.svc-escalate {{ background: #f59e0b; }}
@@ -1223,12 +1304,12 @@ class ReportGenerator:
     <!-- Header -->
     <header class="header">
       <div class="title-group">
-        <h1>Auto-LLM-Router 评估报告 (Laya 驱动)</h1>
-        <p>执行时间: {summary.timestamp} | 模式: {summary.mode} | 底座引擎: Laya (Apple Silicon M4 Max MPS 加速)</p>
+        <h1>Auto-LLM-Router 评估报告 ({engine_title})</h1>
+        <p>执行时间: {summary.timestamp} | 模式: {summary.mode} | {engine_desc_text}</p>
       </div>
       <div class="badge">
         <span class="badge-chip"></span>
-        <span>M4 Max Metal 加速已激活</span>
+        <span>{engine_badge_text}</span>
       </div>
     </header>
 
@@ -1247,9 +1328,9 @@ class ReportGenerator:
       </div>
 
       <div class="kpi-card">
-        <div class="kpi-label"><span>🧠 Laya 决策平均耗时</span><span>MPS</span></div>
+        <div class="kpi-label"><span>🧠 {engine_name} 决策平均耗时</span><span>{engine_kpi_badge}</span></div>
         <div class="kpi-value">{summary.avg_classifier_latency_ms} <span style="font-size: 16px; font-weight: normal; color: var(--text-muted);">ms</span></div>
-        <div class="kpi-sub">单次前向极速反射分类</div>
+        <div class="kpi-sub">{engine_kpi_sub}</div>
       </div>
 
       <div class="kpi-card">
@@ -1285,16 +1366,16 @@ class ReportGenerator:
       </div>
 
       <div class="topology-container" id="topologyContainer">
-        <!-- Col 1: Laya Decision Hub -->
+        <!-- Col 1: Decision Hub -->
         <div class="topo-col">
-          <div class="topo-col-title">🧠 阶段 1: 硬件加速决策中枢</div>
+          <div class="topo-col-title">{topo_phase_title}</div>
           <div class="topo-node active-filter" id="nodeLaya" onclick="filterByTraceStage('all')">
             <div class="topo-node-title">
-              <span>Laya 意图与特征分类</span>
+              <span>{engine_topo_node_title}</span>
               <span class="topo-badge" style="background:#e0f2fe; color:#0284c7;">{summary.avg_classifier_latency_ms} ms</span>
             </div>
             <div class="topo-node-meta">
-              <span>全量请求统一极速仲裁</span>
+              <span>全量请求统一智能仲裁</span>
               <strong>{summary.total_cases} 次</strong>
             </div>
           </div>
@@ -1361,7 +1442,7 @@ class ReportGenerator:
 
           <div class="bar-item">
             <div class="bar-meta">
-              <span class="bar-label" style="color: #059669; font-weight: 600;">Laya 智能分级路由 (Auto-Router)</span>
+              <span class="bar-label" style="color: #059669; font-weight: 600;">{engine_router_label}</span>
               <span class="bar-cost">{cur_sym}{r_cost:.4f} ({r_bar_pct}%)</span>
             </div>
             <div class="bar-track">
@@ -1432,7 +1513,7 @@ class ReportGenerator:
               <th style="width: 75px;">ID</th>
               <th style="width: 125px;">分类 / 难度</th>
               <th>Prompt 摘要</th>
-              <th style="width: 145px;">Laya 决策 (难度/耗时)</th>
+              <th style="width: 145px;">{engine_col_head}</th>
               <th style="width: 135px;">选定路由模型</th>
               <th style="width: 130px;">质检验收</th>
               <th style="width: 125px;">路由支出 (节省)</th>
@@ -1453,7 +1534,7 @@ class ReportGenerator:
 
     <!-- Footer -->
     <footer class="footer">
-      <p>Auto-LLM-Router-Laya • 跑在本地加速硬件上的低延迟智能模型分流系统</p>
+      <p>{engine_footer_text}</p>
     </footer>
   </div>
 
@@ -1782,6 +1863,7 @@ class ReportGenerator:
           else if (isEscalate) colorClass = "svc-escalate";
           else if (sp.service === "amra") colorClass = "svc-amra";
           else if (sp.service === "laya") colorClass = "svc-laya";
+          else if (sp.service === "jev") colorClass = "svc-jev";
 
           const indentGuide = sp.depth === 2 ? `<span class="jaeger-indent-guide"></span>` : "";
           const opLabel = sp.operation || sp.name || "operation";
