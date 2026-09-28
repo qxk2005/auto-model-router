@@ -95,7 +95,7 @@
               <span class="kpi-badge badge-green" id="layaLatencyBadge">硬件加速</span>
             </div>
             <div class="kpi-num" id="kpiLayaLatency">~50 <span class="unit">ms</span></div>
-            <div class="kpi-desc">单次非自回归前向极速反射分类</div>
+            <div class="kpi-desc" id="kpiLayaLatencyDesc">单次非自回归前向极速反射分类</div>
           </div>
 
           <div class="kpi-card">
@@ -131,7 +131,7 @@
           <div class="card-header">
             <div>
               <h3>⚡ 单次提示词路由反射测试 (Live Tester)</h3>
-              <p>输入任意中英文提示词，直接调用本地加速硬件上的 Laya 引擎进行亚秒级分类与模型分配</p>
+              <p id="liveTesterDesc">输入任意中英文提示词，直接调用本地加速硬件上的 Laya 引擎进行亚秒级分类与模型分配</p>
             </div>
           </div>
           <div class="test-box">
@@ -204,7 +204,7 @@
                 </div>
                 <div class="timing-chips-row" style="display: flex; gap: 10px; flex-wrap: wrap;">
                   <span class="timing-chip" style="background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd;">
-                    🧠 Laya 分析耗时: <strong id="chipLayaMs">-- ms</strong>
+                    <span id="chipLayaTitle">🧠 Laya 分析耗时:</span> <strong id="chipLayaMs">-- ms</strong>
                   </span>
                   <span class="timing-chip" style="background: #f0f9ff; color: #0369a1; border: 1px solid #e0f2fe;">
                     ⚡ 路由仲裁耗时: <strong id="chipScoringMs">-- ms</strong>
@@ -302,13 +302,14 @@
 
       <!-- TAB 3: Policy & Laya Tuning -->
       <div class="tab-pane" id="panePolicy">
-        <div class="section-card">
+        <!-- Policy Card 1: 核心调度与超参数设置 -->
+        <div class="section-card" id="cardPolicySettings">
           <div class="card-header">
             <div>
-              <h3>Router 路由策略与超参数设置</h3>
-              <p>调整 auto-model-router 决策算法的风险惩罚、缓存折算与评判门槛</p>
+              <h3>📊 Router 路由策略与调度超参数</h3>
+              <p>调整 auto-model-router 决策算法的风险惩罚、缓存折算与全局评判门槛</p>
             </div>
-            <button class="btn btn-primary" onclick="savePolicyConfig()">
+            <button class="btn btn-primary" onclick="savePolicyConfig('policy')">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
               <span>保存策略参数</span>
             </button>
@@ -363,14 +364,39 @@
             </div>
 
             <div class="form-group">
-              <label for="classifierBackendSelect">分类器后端 (Classifier Backend)</label>
-              <select id="classifierBackendSelect" class="form-control">
-                <option value="local">local (本地 Laya 引擎)</option>
-                <option value="hosted">hosted (远程 TypeSafe Jev API)</option>
-                <option value="heuristic">heuristic (规则启发式，无需模型)</option>
-              </select>
+              <label for="requestCharsInput">提示词截断字符上限 (Request Chars Cap)</label>
+              <input type="number" id="requestCharsInput" class="form-control" value="6000">
             </div>
 
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label for="classifierBackendSelect">核心路由决策引擎 / 分类器后端 (Router Decision Engine)</label>
+              <select id="classifierBackendSelect" class="form-control" onchange="onClassifierBackendChange(true)">
+                <option value="local">⚡ Laya 本地路由模型 (Local Laya Engine) [0成本 · 离线极速推理]</option>
+                <option value="jev">🧠 Jev 云端决策模型 (Hosted Jev AI / TypeSafe) [高精度概率判决]</option>
+                <option value="heuristic">启发式静态规则 (Heuristic Rules) [无模型 · 调试备用]</option>
+              </select>
+              <small class="form-hint">支持在本地轻量 Laya 引擎与 Jev AI 云端决策模型之间切换。下方已提供各自独立的专属设置区块进行精细化调优与连通性验证。</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- Policy Card 2: Laya 本地路由模型引擎配置 -->
+        <div class="section-card" id="cardLayaSettings" style="margin-top: 24px;">
+          <div class="card-header" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <h3>⚡ Laya 本地路由模型配置 (Local Laya Engine)</h3>
+                <span class="badge" id="layaStatusBadge" style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; font-size: 12px; padding: 2px 8px; border-radius: 4px; font-weight: 600;">主决策生效中</span>
+              </div>
+              <p>基于本地轻量 Transformer / ModernBERT 分类模型，零 Token 消耗、极低推理延迟（~50ms），完全私有化离线运行。</p>
+            </div>
+            <button class="btn btn-primary" onclick="savePolicyConfig('laya')">
+              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+              <span>保存 Laya 配置</span>
+            </button>
+          </div>
+
+          <div class="form-grid">
             <div class="form-group">
               <label for="layaDeviceSelect">Laya 运行加速设备 (Hardware Device)</label>
               <select id="layaDeviceSelect" class="form-control">
@@ -391,16 +417,115 @@
               <input type="text" id="layaSubfolderInput" class="form-control" value="multilingual">
               <small class="form-hint">输入 'multilingual' 支持中英文等100+语言；留空则使用纯英文 ModernBERT</small>
             </div>
+          </div>
+        </div>
+
+        <!-- Policy Card 3: Jev 云端决策模型引擎配置 (专属独立区块) -->
+        <div class="section-card" id="cardJevSettings" style="margin-top: 24px;">
+          <div class="card-header" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <h3>🧠 Jev 云端决策模型配置 (Hosted Jev AI / TypeSafe)</h3>
+                <span class="badge" id="jevStatusBadge" style="background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; font-size: 12px; padding: 2px 8px; border-radius: 4px; font-weight: 600;">就绪待命</span>
+              </div>
+              <p>对接 Jev 官方/TypeSafe 远程推理端点，提供高精度意图识别、难度预估与质检验收概率裁决，免去本地显存开销。</p>
+            </div>
+            <button class="btn btn-primary" onclick="savePolicyConfig('jev')">
+              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+              <span>保存 Jev 配置</span>
+            </button>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="jevBaseUrlInput">Jev 服务器地址 (Server Base URL)</label>
+              <input type="text" id="jevBaseUrlInput" class="form-control" placeholder="https://jev-ai.pro/api/v1/" value="https://jev-ai.pro/api/v1/">
+              <small class="form-hint">支持输入任何兼容端点地址（如 https://jev-ai.pro/api/v1/ 或 https://jev-ai.pro/api），系统自动拼装 /systemone 与 /models</small>
+            </div>
 
             <div class="form-group">
-              <label for="requestCharsInput">提示词截断字符上限 (Request Chars Cap)</label>
-              <input type="number" id="requestCharsInput" class="form-control" value="6000">
+              <label for="jevApiKeyInput">Jev API 密钥 (API Key)</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="password" id="jevApiKeyInput" class="form-control" placeholder="留空则读取环境变量 JEV_AI_API_KEY">
+                <button type="button" class="btn btn-secondary" onclick="toggleJevKeyVisibility()" style="padding: 0 12px; white-space: nowrap;">显示/隐藏</button>
+              </div>
+              <small class="form-hint">凭据保存在服务端脱敏管理，不会泄漏到日志或客户端浏览器中</small>
+            </div>
+
+            <div class="form-group" style="position: relative;">
+              <label for="jevModelInput">Jev 模型名称 (Model Name)</label>
+              <div style="position: relative; display: flex; align-items: center;">
+                <input type="text" id="jevModelInput" class="form-control" value="jev-latest" placeholder="jev-latest" list="jevModelDataList" style="flex: 1; padding-right: 36px;">
+                <datalist id="jevModelDataList"></datalist>
+                <button type="button" id="btnJevModelDropdown" class="btn" style="position: absolute; right: 2px; height: 32px; padding: 0 10px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center;" title="展开已探测模型列表" onclick="toggleJevModelDropdownMenu(event)">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div id="jevModelDropdownMenu" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 1050; background: #ffffff; border: 1px solid var(--card-border); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); max-height: 240px; overflow-y: auto;">
+                </div>
+              </div>
+              <small class="form-hint" id="jevModelHint">可自由输入或点击“测试 Jev 连接”获取云端模型列表进行下拉选择</small>
+            </div>
+
+            <div class="form-group" style="grid-column: 1 / -1; margin-top: -4px;">
+              <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary" id="btnTestJev" onclick="testJevConnection()">
+                  <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                  <span>⚡ 测试 Jev 连接 (免推理探活)</span>
+                </button>
+                <span id="jevTestStatus" style="font-size: 13px; color: var(--text-muted);"></span>
+              </div>
+            </div>
+
+            <!-- Jev 决策实时测试卡片 -->
+            <div class="form-group" style="grid-column: 1 / -1; margin-top: 6px; background: #f8fafc; border: 1px solid var(--card-border); border-radius: 8px; padding: 14px 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+                <strong style="font-size: 13.5px; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+                  🎯 运行 Jev 决策实时测试 (Live Decision Test)
+                </strong>
+                <span style="font-size: 12px; color: var(--text-muted);">真实运行一次特征分类与判决，验证 Jev 决策能力生效</span>
+              </div>
+              <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <input type="text" id="jevTestPromptInput" class="form-control" placeholder="输入测试提示词" value="帮我写一个Python快速排序算法，要求带注释并处理边界情况" style="flex: 1; background: #ffffff;">
+                <button type="button" class="btn btn-primary" id="btnRunJevDecisionTest" onclick="runJevDecisionTest()" style="white-space: nowrap;">
+                  <span>🎯 运行决策测试</span>
+                </button>
+              </div>
+
+              <!-- 决策测试结果展示区 -->
+              <div id="jevDecisionResultBox" style="display: none; background: #ffffff; border: 1px solid var(--card-border); border-radius: 6px; padding: 12px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 10px;">
+                  <div style="background: #f1f5f9; padding: 8px 10px; border-radius: 6px;">
+                    <div style="font-size: 11px; color: var(--text-muted);">识别类别 (Category)</div>
+                    <div id="jevResCat" style="font-weight: 700; color: #0369a1; font-size: 14px;">--</div>
+                  </div>
+                  <div style="background: #f1f5f9; padding: 8px 10px; border-radius: 6px;">
+                    <div style="font-size: 11px; color: var(--text-muted);">难度评分 (Difficulty)</div>
+                    <div id="jevResDiff" style="font-weight: 700; color: #059669; font-size: 14px;">--</div>
+                  </div>
+                  <div style="background: #f1f5f9; padding: 8px 10px; border-radius: 6px;">
+                    <div style="font-size: 11px; color: var(--text-muted);">工具需求 (Tools)</div>
+                    <div id="jevResTools" style="font-weight: 700; color: var(--text-main); font-size: 14px;">--</div>
+                  </div>
+                  <div style="background: #f1f5f9; padding: 8px 10px; border-radius: 6px;">
+                    <div style="font-size: 11px; color: var(--text-muted);">错误风险代价 (Stakes)</div>
+                    <div id="jevResStakes" style="font-weight: 700; color: #b45309; font-size: 14px;">--</div>
+                  </div>
+                  <div style="background: #f1f5f9; padding: 8px 10px; border-radius: 6px;">
+                    <div style="font-size: 11px; color: var(--text-muted);">质检验收评分 (Adequacy)</div>
+                    <div id="jevResAdequate" style="font-weight: 700; color: #7c3aed; font-size: 14px;">--</div>
+                  </div>
+                </div>
+                <div style="font-size: 12px; color: var(--text-dim); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; border-top: 1px dashed var(--card-border); padding-top: 8px;">
+                  <span id="jevResMeta">耗时: -- ms | 响应模型: --</span>
+                  <span id="jevResTokens">输入: -- Tokens | 输出: -- Tokens</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Policy Card 2: 质检验收与二次升级 (Verify & Escalate) -->
-        <div class="section-card" style="margin-top: 24px;">
+        <!-- Policy Card 4: 质检验收与二次升级 (Verify & Escalate) -->
+        <div class="section-card" id="cardVerifySettings" style="margin-top: 24px;">
           <div class="card-header" style="flex-wrap: wrap; gap: 12px; align-items: center;">
             <div>
               <div style="display: flex; align-items: center; gap: 10px;">
@@ -414,7 +539,7 @@
                 <input type="checkbox" id="verifyEnabledSwitch" onchange="onVerifyEnabledChanged()" style="width: 18px; height: 18px; cursor: pointer;">
                 <span id="verifyEnabledLabel">启用质检验收</span>
               </label>
-              <button class="btn btn-primary" onclick="savePolicyConfig()">
+              <button class="btn btn-primary" onclick="savePolicyConfig('verify')">
                 <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
                 <span>保存质检配置</span>
               </button>
@@ -426,8 +551,9 @@
               <label for="verifyJudgeModelSelect">质检裁决模型 (Judge Model)</label>
               <select id="verifyJudgeModelSelect" class="form-control">
                 <option value="laya">Laya 本地分类裁决引擎 (Local Engine)</option>
+                <option value="jev">Jev 云端分类裁决模型 (Hosted Jev AI / TypeSafe)</option>
               </select>
-              <small class="form-hint">担任质检验收官的模型：可选 Laya 本地引擎或路由模型池中的任意大模型（推荐响应迅速、性价比高的 Flash 模型）</small>
+              <small class="form-hint">担任质检验收官的模型：可选 Laya 本地引擎、Jev 云端裁决模型或路由模型池中的任意大模型</small>
             </div>
 
             <div class="form-group">

@@ -121,23 +121,89 @@ async function refreshStatus() {
       ${vramRowHtml}
     `;
 
-    // Dynamic Title & Badge Adaptation
-    document.title = `Auto-LLM-Router 控制台 | Laya on ${hwName}`;
-    const sideTag = document.getElementById("sidebarVersionTag");
-    if (sideTag) {
-      sideTag.textContent = data.accelerator_type ? `Laya ${data.accelerator_type}` : "Laya Local";
+    // Dynamic Title & Badge Adaptation (Laya vs Jev)
+    const isJev = !!data.is_jev;
+    const jevModel = data.jev_model || "jev-latest";
+
+    if (isJev) {
+      document.title = `Auto-LLM-Router 控制台 | Jev AI (${jevModel})`;
+      const subTitle = document.getElementById("pageSubtitleText");
+      if (subTitle) {
+        subTitle.textContent = "监测 Jev AI 云端决策引擎与网关实时运行指标";
+      }
+      const sideTag = document.getElementById("sidebarVersionTag");
+      if (sideTag) {
+        sideTag.textContent = "Jev Cloud";
+        sideTag.style.background = "#8b5cf6";
+        sideTag.style.color = "#ffffff";
+      }
+      const latTitle = document.getElementById("layaLatencyTitle");
+      if (latTitle) {
+        latTitle.textContent = `Jev 决策延迟 (云端端点)`;
+      }
+      const latBadge = document.getElementById("layaLatencyBadge");
+      if (latBadge) {
+        latBadge.textContent = "Jev 云端智能";
+        latBadge.className = "kpi-badge badge-purple";
+      }
+      const latDesc = document.getElementById("kpiLayaLatencyDesc");
+      if (latDesc) {
+        latDesc.textContent = "基于 TypeSafe System One 高精度概率判决";
+      }
+      const liveDesc = document.getElementById("liveTesterDesc");
+      if (liveDesc) {
+        liveDesc.textContent = "输入任意中英文提示词，调用 Jev AI 云端决策模型进行亚秒级分类与模型分配";
+      }
+      const chipTitle = document.getElementById("chipLayaTitle");
+      if (chipTitle) {
+        chipTitle.textContent = "🧠 Jev 分析耗时:";
+      }
+      const barLaya = document.getElementById("barLaya");
+      if (barLaya) {
+        barLaya.title = "Jev 提示词分析";
+      }
+    } else {
+      document.title = `Auto-LLM-Router 控制台 | Laya on ${hwName}`;
+      const subTitle = document.getElementById("pageSubtitleText");
+      if (subTitle) {
+        subTitle.textContent = "监测硬件加速本地 Laya 决策引擎与网关实时运行指标";
+      }
+      const sideTag = document.getElementById("sidebarVersionTag");
+      if (sideTag) {
+        sideTag.textContent = data.accelerator_type ? `Laya ${data.accelerator_type}` : "Laya Local";
+        sideTag.style.background = "";
+        sideTag.style.color = "";
+      }
+      const latTitle = document.getElementById("layaLatencyTitle");
+      if (latTitle) {
+        latTitle.textContent = `Laya 决策延迟 (${hwName})`;
+      }
+      const latBadge = document.getElementById("layaLatencyBadge");
+      if (latBadge) {
+        latBadge.textContent = data.accelerator_type ? `${data.accelerator_type} 加速` : "硬件加速";
+        latBadge.className = "kpi-badge badge-green";
+      }
+      const latDesc = document.getElementById("kpiLayaLatencyDesc");
+      if (latDesc) {
+        latDesc.textContent = "单次非自回归前向极速反射分类";
+      }
+      const liveDesc = document.getElementById("liveTesterDesc");
+      if (liveDesc) {
+        liveDesc.textContent = "输入任意中英文提示词，直接调用本地加速硬件上的 Laya 引擎进行亚秒级分类与模型分配";
+      }
+      const chipTitle = document.getElementById("chipLayaTitle");
+      if (chipTitle) {
+        chipTitle.textContent = "🧠 Laya 分析耗时:";
+      }
+      const barLaya = document.getElementById("barLaya");
+      if (barLaya) {
+        barLaya.title = "Laya 提示词分析";
+      }
     }
-    const latTitle = document.getElementById("layaLatencyTitle");
-    if (latTitle) {
-      latTitle.textContent = `Laya 决策延迟 (${hwName})`;
-    }
-    const latBadge = document.getElementById("layaLatencyBadge");
-    if (latBadge) {
-      latBadge.textContent = data.accelerator_type ? `${data.accelerator_type} 加速` : "硬件加速";
-    }
+
     const resDevSub = document.getElementById("resLayaDeviceSub");
     if (resDevSub) {
-      resDevSub.textContent = hwName;
+      resDevSub.textContent = isJev ? `Jev API (${jevModel})` : hwName;
     }
 
     document.getElementById("kpiActivePolicy").textContent = data.active_policy || "F_expected";
@@ -378,7 +444,13 @@ function populateJudgeModelSelect(selectedModel) {
   layaOpt.textContent = "Laya 本地分类裁决引擎 (Local Engine)";
   sel.appendChild(layaOpt);
 
-  // 2. Configured Models
+  // 2. Jev Cloud Decision & Judge Engine option
+  const jevOpt = document.createElement("option");
+  jevOpt.value = "jev";
+  jevOpt.textContent = "Jev 云端分类裁决模型 (Hosted Jev AI / TypeSafe)";
+  sel.appendChild(jevOpt);
+
+  // 3. Configured Models in Catalog
   if (currentConfig && Array.isArray(currentConfig.models)) {
     currentConfig.models.forEach(m => {
       const opt = document.createElement("option");
@@ -394,11 +466,13 @@ function populateJudgeModelSelect(selectedModel) {
   if (!sel.value && sel.options.length > 0) {
     sel.selectedIndex = 0;
   }
+  sel.onchange = () => updateEngineBadges();
 }
 
 function onVerifyEnabledChanged() {
   const chk = document.getElementById("verifyEnabledSwitch") ? document.getElementById("verifyEnabledSwitch").checked : false;
   updateVerifyBadge(chk);
+  updateEngineBadges();
 }
 
 function updateVerifyBadge(enabled) {
@@ -422,6 +496,357 @@ function updateVerifyBadge(enabled) {
   }
 }
 
+// 动态同步 Laya 与 Jev 独立设置卡片的生效状态徽章
+function updateEngineBadges() {
+  const backend = document.getElementById("classifierBackendSelect")?.value || "local";
+  const vfyEnabled = document.getElementById("verifyEnabledSwitch") ? document.getElementById("verifyEnabledSwitch").checked : true;
+  const vfyJudge = document.getElementById("verifyJudgeModelSelect")?.value || "";
+
+  // 1. Laya 本地模型卡片徽章更新
+  const layaBadge = document.getElementById("layaStatusBadge");
+  if (layaBadge) {
+    if (backend === "local" || backend === "laya") {
+      layaBadge.textContent = "● 主决策生效中";
+      layaBadge.style.background = "#ecfdf5";
+      layaBadge.style.color = "#059669";
+      layaBadge.style.borderColor = "#a7f3d0";
+    } else if (vfyEnabled && vfyJudge === "laya") {
+      layaBadge.textContent = "● 质检验收生效中";
+      layaBadge.style.background = "#eff6ff";
+      layaBadge.style.color = "#0284c7";
+      layaBadge.style.borderColor = "#bfdbfe";
+    } else {
+      layaBadge.textContent = "就绪待命 (Standby)";
+      layaBadge.style.background = "#f1f5f9";
+      layaBadge.style.color = "#64748b";
+      layaBadge.style.borderColor = "#cbd5e1";
+    }
+  }
+
+  // 2. Jev 云端模型卡片徽章更新
+  const jevBadge = document.getElementById("jevStatusBadge");
+  if (jevBadge) {
+    if (backend === "jev" || backend === "hosted") {
+      jevBadge.textContent = "● 主决策生效中";
+      jevBadge.style.background = "#ecfdf5";
+      jevBadge.style.color = "#059669";
+      jevBadge.style.borderColor = "#a7f3d0";
+    } else if (vfyEnabled && vfyJudge === "jev") {
+      jevBadge.textContent = "● 质检验收生效中";
+      jevBadge.style.background = "#eff6ff";
+      jevBadge.style.color = "#0284c7";
+      jevBadge.style.borderColor = "#bfdbfe";
+    } else {
+      jevBadge.textContent = "就绪待命 (Standby)";
+      jevBadge.style.background = "#f1f5f9";
+      jevBadge.style.color = "#64748b";
+      jevBadge.style.borderColor = "#cbd5e1";
+    }
+  }
+}
+
+// Classifier Backend Tab Switching with Highlight Feedback
+function onClassifierBackendChange(triggerAnimation = false) {
+  const backend = document.getElementById("classifierBackendSelect")?.value || "local";
+  updateEngineBadges();
+
+  if (triggerAnimation) {
+    let targetCardId = null;
+    if (backend === "local" || backend === "laya") {
+      targetCardId = "cardLayaSettings";
+    } else if (backend === "jev" || backend === "hosted") {
+      targetCardId = "cardJevSettings";
+    }
+
+    if (targetCardId) {
+      const cardEl = document.getElementById(targetCardId);
+      if (cardEl) {
+        cardEl.classList.remove("section-card-highlight");
+        void cardEl.offsetWidth; // Force reflow
+        cardEl.classList.add("section-card-highlight");
+        cardEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        setTimeout(() => {
+          cardEl.classList.remove("section-card-highlight");
+        }, 1500);
+      }
+    }
+  }
+}
+
+function toggleJevKeyVisibility() {
+  const inp = document.getElementById("jevApiKeyInput");
+  if (inp) {
+    inp.type = (inp.type === "password") ? "text" : "password";
+  }
+}
+
+let currentJevModels = [];
+
+function toggleJevModelDropdownMenu(event) {
+  if (event) event.stopPropagation();
+  const menu = document.getElementById("jevModelDropdownMenu");
+  if (!menu) return;
+
+  if (menu.style.display === "block") {
+    menu.style.display = "none";
+    return;
+  }
+
+  if (!currentJevModels || currentJevModels.length === 0) {
+    menu.innerHTML = `
+      <div style="padding: 12px 14px; color: var(--text-muted); font-size: 12.5px; text-align: center;">
+        暂无云端模型列表<br>
+        <span style="font-size: 11.5px; color: var(--text-dim); margin-top: 4px; display: inline-block;">请点击下方“⚡ 测试 Jev 连接”获取最新可用模型</span>
+      </div>
+    `;
+    menu.style.display = "block";
+    return;
+  }
+
+  renderJevModelDropdownItems();
+  menu.style.display = "block";
+}
+
+function selectJevModel(modelName) {
+  const input = document.getElementById("jevModelInput");
+  if (input) {
+    input.value = modelName;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  const menu = document.getElementById("jevModelDropdownMenu");
+  if (menu) menu.style.display = "none";
+  showToast(`已选用 Jev 模型: ${modelName}`, "info");
+}
+
+function renderJevModelDropdownItems() {
+  const menu = document.getElementById("jevModelDropdownMenu");
+  if (!menu) return;
+
+  const currentVal = document.getElementById("jevModelInput")?.value?.trim() || "";
+  let html = `<div style="padding: 6px 0;">`;
+  html += `<div style="padding: 4px 12px 6px; font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; border-bottom: 1px solid var(--card-border); margin-bottom: 4px;">云端在线决策模型 (${currentJevModels.length})</div>`;
+
+  currentJevModels.forEach((m) => {
+    const mName = typeof m === "string" ? m : (m.name || m.id || "");
+    const mDesc = typeof m === "object" ? (m.description || "") : "";
+    const isSelected = mName === currentVal;
+
+    html += `
+      <div class="jev-model-option-item" onclick="selectJevModel('${escapeHtml(mName)}')" style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background 0.15s ease; ${isSelected ? 'background: #eff6ff;' : ''}" onmouseover="this.style.background='${isSelected ? '#dbeafe' : '#f8fafc'}'" onmouseout="this.style.background='${isSelected ? '#eff6ff' : 'transparent'}'">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <strong style="font-size: 13px; color: ${isSelected ? 'var(--primary)' : 'var(--text-main)'}; font-family: monospace;">${escapeHtml(mName)}</strong>
+          ${isSelected ? '<span style="font-size: 11px; color: var(--primary); font-weight: 600;">✓ 当前选用</span>' : ''}
+        </div>
+        ${mDesc ? `<span style="font-size: 11.5px; color: var(--text-muted); line-height: 1.35;">${escapeHtml(mDesc)}</span>` : ''}
+      </div>
+    `;
+  });
+
+  html += `</div>`;
+  menu.innerHTML = html;
+}
+
+function populateJevModelDropdown(models) {
+  if (!Array.isArray(models)) return;
+  currentJevModels = models;
+
+  // 1. 填充原生 datalist
+  const dataList = document.getElementById("jevModelDataList");
+  if (dataList) {
+    dataList.innerHTML = "";
+    models.forEach((m) => {
+      const mName = typeof m === "string" ? m : (m.name || m.id || "");
+      const mDesc = typeof m === "object" ? (m.description || "") : "";
+      const opt = document.createElement("option");
+      opt.value = mName;
+      if (mDesc) opt.label = mDesc;
+      dataList.appendChild(opt);
+    });
+  }
+
+  // 2. 更新提示
+  const hint = document.getElementById("jevModelHint");
+  if (hint) {
+    hint.innerHTML = `已同步 <strong>${models.length}</strong> 个云端在线模型，可点击右侧箭头或直接输入选择`;
+    hint.style.color = "#059669";
+  }
+
+  // 3. 预渲染下拉内容
+  renderJevModelDropdownItems();
+}
+
+// 全局监听点击外部自动收起下拉菜单
+document.addEventListener("click", (e) => {
+  const menu = document.getElementById("jevModelDropdownMenu");
+  const btn = document.getElementById("btnJevModelDropdown");
+  const input = document.getElementById("jevModelInput");
+  if (menu && menu.style.display === "block") {
+    if (!menu.contains(e.target) && e.target !== btn && !btn.contains(e.target) && e.target !== input) {
+      menu.style.display = "none";
+    }
+  }
+});
+
+async function testJevConnection() {
+  const btn = document.getElementById("btnTestJev");
+  const statusSpan = document.getElementById("jevTestStatus");
+  const baseUrl = document.getElementById("jevBaseUrlInput")?.value?.trim() || "";
+  const apiKey = document.getElementById("jevApiKeyInput")?.value?.trim() || "";
+  const model = document.getElementById("jevModelInput")?.value?.trim() || "jev-latest";
+
+  if (statusSpan) {
+    statusSpan.innerHTML = `<span style="color: var(--primary);">⏳ 正在探测 Jev 服务器连通性...</span>`;
+  }
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch("/api/jev/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_url: baseUrl, api_key: apiKey, model: model }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = (typeof data.detail === "string" ? data.detail : null) ||
+                  (Array.isArray(data.detail) ? JSON.stringify(data.detail) : null) ||
+                  data.error || data.message || `HTTP ${res.status}: 接口异常`;
+      if (statusSpan) {
+        statusSpan.innerHTML = `<span style="color: #dc2626; font-weight: 500;">❌ 探测失败: ${escapeHtml(err)}</span>`;
+      }
+      showToast(`Jev 探测失败: ${err}`, "danger");
+      return;
+    }
+
+    if (data.status === "ok") {
+      const mCount = Array.isArray(data.models) ? data.models.length : 0;
+      if (statusSpan) {
+        statusSpan.innerHTML = `<span style="color: #059669; font-weight: 600;">✅ 连接成功！耗时: ${data.latency_ms} ms (在线模型数: ${mCount})</span>`;
+      }
+      populateJevModelDropdown(data.models);
+      showToast(`Jev 服务器探测成功！已拉取 ${mCount} 个可用模型`, "success");
+    } else {
+      const err = data.error || data.message || (typeof data.detail === "string" ? data.detail : null) || "服务器探测未能完成";
+      if (statusSpan) {
+        statusSpan.innerHTML = `<span style="color: #dc2626; font-weight: 500;">❌ 探测失败: ${escapeHtml(err)}</span>`;
+      }
+      showToast(`Jev 探测失败: ${err}`, "danger");
+    }
+  } catch (err) {
+    if (statusSpan) {
+      statusSpan.innerHTML = `<span style="color: #dc2626; font-weight: 500;">❌ 网络异常: ${escapeHtml(err.message)}</span>`;
+    }
+    showToast(`网络请求错误: ${err.message}`, "danger");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runJevDecisionTest() {
+  const btn = document.getElementById("btnRunJevDecisionTest");
+  const resultBox = document.getElementById("jevDecisionResultBox");
+  const promptInput = document.getElementById("jevTestPromptInput");
+  const prompt = promptInput ? promptInput.value.trim() : "";
+  if (!prompt) {
+    showToast("请输入测试提示词", "warning");
+    return;
+  }
+
+  const baseUrl = document.getElementById("jevBaseUrlInput")?.value?.trim() || "";
+  const apiKey = document.getElementById("jevApiKeyInput")?.value?.trim() || "";
+  const model = document.getElementById("jevModelInput")?.value?.trim() || "jev-latest";
+
+  const origBtnHtml = btn ? btn.innerHTML : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner" style="width:13px;height:13px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> 正在运行智能决策...`;
+  }
+
+  try {
+    const res = await fetch("/api/jev/test-decision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        base_url: baseUrl,
+        api_key: apiKey,
+        model: model,
+        prompt: prompt,
+        test_judge: true,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = (typeof data.detail === "string" ? data.detail : null) ||
+                  (Array.isArray(data.detail) ? JSON.stringify(data.detail) : null) ||
+                  data.error || data.message || `HTTP ${res.status}: 接口调用异常`;
+      showToast(`Jev 决策测试失败: ${err}`, "danger");
+      return;
+    }
+
+    if (data.status === "ok") {
+      const clf = data.classification || {};
+      const judge = data.judge || {};
+
+      if (resultBox) resultBox.style.display = "block";
+
+      const catEl = document.getElementById("jevResCat");
+      if (catEl) {
+        const conf = clf.category_confidence !== undefined ? ` (${(clf.category_confidence * 100).toFixed(0)}%)` : "";
+        catEl.textContent = `${clf.category || "general"}${conf}`;
+      }
+
+      const diffEl = document.getElementById("jevResDiff");
+      if (diffEl) {
+        const diffVal = clf.difficulty !== undefined ? clf.difficulty.toFixed(3) : "--";
+        diffEl.textContent = diffVal;
+      }
+
+      const toolsEl = document.getElementById("jevResTools");
+      if (toolsEl) {
+        const needsTools = clf.needs_tools !== undefined ? (clf.needs_tools > 0.5 ? "需要工具 🛠️" : "无需工具") : "--";
+        toolsEl.textContent = `${needsTools} (${(clf.needs_tools || 0).toFixed(2)})`;
+      }
+
+      const stakesEl = document.getElementById("jevResStakes");
+      if (stakesEl) {
+        const stakesVal = clf.stakes !== undefined ? clf.stakes.toFixed(3) : "--";
+        stakesEl.textContent = stakesVal;
+      }
+
+      const adeEl = document.getElementById("jevResAdequate");
+      if (adeEl) {
+        if (judge && judge.p_adequate !== null && judge.p_adequate !== undefined) {
+          const isPass = judge.failure === null || judge.p_adequate >= 0.5;
+          adeEl.innerHTML = `<span style="color: ${isPass ? '#059669' : '#dc2626'}">${judge.p_adequate.toFixed(2)} (${isPass ? '合格' : '未达标'})</span>`;
+        } else {
+          adeEl.textContent = "未启用质检";
+        }
+      }
+
+      const metaEl = document.getElementById("jevResMeta");
+      if (metaEl) {
+        metaEl.textContent = `分类耗时: ${clf.latency_ms || 0} ms | 质检耗时: ${judge.latency_ms || 0} ms | 总耗时: ${data.total_latency_ms || 0} ms | 模型: ${clf.model || model}`;
+      }
+
+      const tokensEl = document.getElementById("jevResTokens");
+      if (tokensEl) {
+        tokensEl.textContent = `输入: ${clf.input_tokens ?? '--'} Tokens | 输出: ${clf.output_tokens ?? '--'} Tokens`;
+      }
+
+      showToast(`Jev 决策测试成功！已精准识别为 [${clf.category || 'general'}]，耗时: ${data.total_latency_ms || 0} ms`, "success");
+    } else {
+      showToast(`Jev 决策测试失败: ${data.error || "未知错误"}`, "danger");
+    }
+  } catch (err) {
+    showToast(`请求异常: ${err.message}`, "danger");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origBtnHtml;
+    }
+  }
+}
+
 // Render Policy Form
 function renderPolicyForm() {
   if (!currentConfig || !currentConfig.policy) return;
@@ -440,11 +865,24 @@ function renderPolicyForm() {
   document.getElementById("remainingTurnsInput").value = pol.remaining_turns || 3.0;
   document.getElementById("requestTimeoutInput").value = pol.request_timeout_seconds || 60;
 
-  document.getElementById("classifierBackendSelect").value = clf.backend || "local";
+  const currentBackend = clf.backend || "local";
+  document.getElementById("classifierBackendSelect").value = currentBackend;
   document.getElementById("layaDeviceSelect").value = clf.device || "auto";
   document.getElementById("layaModelInput").value = clf.model || "convaiinnovations/laya";
   document.getElementById("layaSubfolderInput").value = clf.subfolder || "multilingual";
   document.getElementById("requestCharsInput").value = clf.request_chars || 6000;
+
+  // Jev Configuration binding
+  const jevCfg = clf.jev || {};
+  const jevBaseUrlInp = document.getElementById("jevBaseUrlInput");
+  if (jevBaseUrlInp) jevBaseUrlInp.value = jevCfg.base_url || clf.base_url || "https://jev-ai.pro/api/v1/";
+  const jevKeyInp = document.getElementById("jevApiKeyInput");
+  if (jevKeyInp) jevKeyInp.value = jevCfg.api_key || clf.api_key || "";
+  const jevModelInp = document.getElementById("jevModelInput");
+  if (jevModelInp) jevModelInp.value = jevCfg.model || clf.model || "jev-latest";
+
+  onClassifierBackendChange(false);
+  updateEngineBadges();
 
   // Verify and Escalate Controls
   populateJudgeModelSelect(vfy.judge_model);
@@ -469,7 +907,7 @@ function renderPolicyForm() {
 }
 
 // Save Policy Form
-async function savePolicyConfig() {
+async function savePolicyConfig(section = "all") {
   if (!currentConfig) return;
   currentConfig.policy.name = document.getElementById("policyNameSelect").value;
   currentConfig.policy.stakes_usd = parseFloat(document.getElementById("stakesInput").value);
@@ -484,14 +922,24 @@ async function savePolicyConfig() {
     usd_cny_rate: usdRate
   };
 
+  const backendVal = document.getElementById("classifierBackendSelect").value;
+  const jevBaseUrl = document.getElementById("jevBaseUrlInput")?.value?.trim() || "https://jev-ai.pro/api/v1/";
+  const jevApiKey = document.getElementById("jevApiKeyInput")?.value?.trim() || "";
+  const jevModel = document.getElementById("jevModelInput")?.value?.trim() || "jev-latest";
+
   currentConfig.policy.classifier = {
-    backend: document.getElementById("classifierBackendSelect").value,
+    backend: backendVal,
     device: document.getElementById("layaDeviceSelect").value,
     model: document.getElementById("layaModelInput").value,
     subfolder: document.getElementById("layaSubfolderInput").value,
     threads: 4,
     request_chars: parseInt(document.getElementById("requestCharsInput").value) || 6000,
     context_chars: 2000,
+    jev: {
+      base_url: jevBaseUrl,
+      api_key: jevApiKey,
+      model: jevModel,
+    }
   };
 
   // Verify and Escalate settings
@@ -522,7 +970,16 @@ async function savePolicyConfig() {
       body: JSON.stringify(currentConfig),
     });
     if (res.ok) {
-      showToast("策略与质检配置保存成功并已实时生效！", "success");
+      if (section === "jev") {
+        showToast("🧠 Jev 云端决策模型配置已成功保存并实时生效！", "success");
+      } else if (section === "laya") {
+        showToast("⚡ Laya 本地路由模型配置已成功保存并实时生效！", "success");
+      } else if (section === "verify") {
+        showToast("🎯 质检验收与二次升级配置已成功保存并实时生效！", "success");
+      } else {
+        showToast("📊 路由策略与超参数设置已成功保存并实时生效！", "success");
+      }
+      updateEngineBadges();
       refreshStatus();
       renderModels();
     } else {
@@ -591,8 +1048,14 @@ async function runSingleTest() {
         consoleEl.scrollTop = consoleEl.scrollHeight;
       };
 
-      const updateTimingAndBars = (layaMs, scoreMs, upMs, verMs, totMs) => {
+      const updateTimingAndBars = (layaMs, scoreMs, upMs, verMs, totMs, isJev = null) => {
         const tot = Math.max(totMs || (layaMs + scoreMs + upMs + verMs), 0.1);
+        if (isJev !== null) {
+          const chipTitle = document.getElementById("chipLayaTitle");
+          if (chipTitle) chipTitle.textContent = isJev ? "🧠 Jev 分析耗时:" : "🧠 Laya 分析耗时:";
+          const barLaya = document.getElementById("barLaya");
+          if (barLaya) barLaya.title = isJev ? "Jev 提示词分析" : "Laya 提示词分析";
+        }
         document.getElementById("chipLayaMs").textContent = `${layaMs} ms`;
         document.getElementById("chipScoringMs").textContent = `${scoreMs} ms`;
         const upWrap = document.getElementById("chipUpstreamWrap");
@@ -683,7 +1146,8 @@ async function runSingleTest() {
 
             const layaMs = ev.timing?.classifier_ms || 0;
             const scoreMs = ev.timing?.route_scoring_ms || 0;
-            updateTimingAndBars(layaMs, scoreMs, 0, 0, layaMs + scoreMs);
+            const isJevStream = ev.classification?.engine_type === "jev" || ev.classification?.is_jev || (currentConfig?.policy?.classifier?.backend === "jev" || currentConfig?.policy?.classifier?.backend === "hosted");
+            updateTimingAndBars(layaMs, scoreMs, 0, 0, layaMs + scoreMs, isJevStream);
           } else if (ev.type === "start_model") {
             curAttempt = ev.attempt || 1;
             if (dispCountBadge) {
@@ -847,7 +1311,8 @@ async function runSingleTest() {
             const upMs = timing.upstream_request_ms || 0;
             const verMs = timing.verification_ms || 0;
             const totMs = timing.total_latency_ms || 0;
-            updateTimingAndBars(layaMs, scoreMs, upMs, verMs, totMs);
+            const isJevDone = ev.classification?.engine_type === "jev" || ev.classification?.is_jev || (currentConfig?.policy?.classifier?.backend === "jev" || currentConfig?.policy?.classifier?.backend === "hosted");
+            updateTimingAndBars(layaMs, scoreMs, upMs, verMs, totMs, isJevDone);
 
             if (cursorSpan && cursorSpan.parentNode) {
               cursorSpan.parentNode.removeChild(cursorSpan);
@@ -897,6 +1362,12 @@ async function runSingleTest() {
       const scoreMs = timing.route_scoring_ms || 0;
       const upMs = timing.upstream_request_ms || 0;
       const verMs = timing.verification_ms || 0;
+
+      const isJevNonStream = data.classification?.engine_type === "jev" || data.classification?.is_jev || (currentConfig?.policy?.classifier?.backend === "jev" || currentConfig?.policy?.classifier?.backend === "hosted");
+      const chipTitle = document.getElementById("chipLayaTitle");
+      if (chipTitle) chipTitle.textContent = isJevNonStream ? "🧠 Jev 分析耗时:" : "🧠 Laya 分析耗时:";
+      const barLaya = document.getElementById("barLaya");
+      if (barLaya) barLaya.title = isJevNonStream ? "Jev 提示词分析" : "Laya 提示词分析";
 
       document.getElementById("resModeBadge").textContent = isEndToEnd ? "模式: 🌐 端到端全链路" : "模式: ⚡ 纯路由预测 (亚秒级)";
       document.getElementById("chipLayaMs").textContent = `${layaMs} ms`;

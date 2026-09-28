@@ -49,7 +49,7 @@ from pydantic import BaseModel, Field
 import auto_router.server as ar_server
 from auto_router.config import for_http, load_config, save_config, expand_env_vars, normalize_provider_url
 import auto_router.jev as jev
-from auto_router.jev import LocalLayaClassifier, Judgement
+from auto_router.jev import LocalLayaClassifier, Judgement, JevClassifier, normalize_jev_url
 from auto_router.verify import VerifyPolicy
 from auto_router.router import Router
 from evaluator import BenchmarkEvaluator, BenchmarkSummary
@@ -236,7 +236,44 @@ def build_judge(config, raw_policy: dict, classifier=None):
             safe_laya_judge.__name__ = "laya_judge[local]"
             return safe_laya_judge
 
-    # 2. Configured model in catalog
+    # 2. Remote Jev AI / TypeSafe System One Judge
+    if judge_choice.lower() in ("jev", "typesafe", "hosted"):
+        clf = classifier or getattr(ar_server.router, "classifier", None)
+        if isinstance(clf, JevClassifier):
+            def safe_active_jev_judge(req: str, ans: str, category: str = "general") -> Judgement:
+                try:
+                    res = clf.judge(req, ans, category=category)
+                    if not res.failed:
+                        return res
+                except Exception as ex:
+                    log.warning("Active Jev judge failed: %s; falling back to LLM judge", ex)
+                fb = _find_default_llm_judge(config)
+                if fb:
+                    return fb(req, ans, category=category)
+                return Judgement(p_adequate=0.5, latency_s=0.0, failed=True)
+            safe_active_jev_judge.__name__ = f"jev_judge[{getattr(clf, 'model', 'remote')}]"
+            return safe_active_jev_judge
+
+        # 若当前分类器不是 Jev，依据配置独立构建 JevClassifier
+        try:
+            jev_inst = JevClassifier.from_config(raw_policy.get("classifier", {}))
+            def standalone_jev_judge(req: str, ans: str, category: str = "general") -> Judgement:
+                try:
+                    res = jev_inst.judge(req, ans, category=category)
+                    if not res.failed:
+                        return res
+                except Exception as ex:
+                    log.warning("Standalone Jev judge failed: %s; falling back to LLM judge", ex)
+                fb = _find_default_llm_judge(config)
+                if fb:
+                    return fb(req, ans, category=category)
+                return Judgement(p_adequate=0.5, latency_s=0.0, failed=True)
+            standalone_jev_judge.__name__ = f"jev_judge[{jev_inst.model}]"
+            return standalone_jev_judge
+        except Exception as exc:
+            log.warning("Failed to initialize standalone Jev judge: %s", exc)
+
+    # 3. Configured model in catalog
     models = getattr(config.catalog, "models", [])
     target_model = next((m for m in models if m.name == judge_choice), None)
     if target_model:
@@ -244,26 +281,26 @@ def build_judge(config, raw_policy: dict, classifier=None):
         if provider:
             return create_llm_judge(target_model, provider)
 
-    # 3. Fallback to Laya local engine if configured model was disabled or missing
+    # 4. Fallback to Laya local engine if configured model was disabled or missing
     clf = classifier or getattr(ar_server.router, "classifier", None) or jev.classifier_from_config(raw_policy)
     if hasattr(clf, "judge"):
-        log.warning("Judge model '%s' is disabled or missing; safely falling back to Laya local engine", judge_choice)
+        log.warning("Judge model '%s' is disabled or missing; safely falling back to classifier engine", judge_choice)
         def fallback_laya_judge(req: str, ans: str, category: str = "general") -> Judgement:
             try:
                 res = clf.judge(req, ans, category=category)
                 if not res.failed:
                     return res
             except Exception as ex:
-                log.warning("Fallback Laya local judge failed: %s", ex)
+                log.warning("Fallback classifier judge failed: %s", ex)
             return Judgement(p_adequate=0.5, latency_s=0.0, failed=True)
-        fallback_laya_judge.__name__ = "laya_judge[fallback]"
+        fallback_laya_judge.__name__ = "classifier_judge[fallback]"
         return fallback_laya_judge
 
-    # 4. Remote TypeSafe Jev API
-    if os.environ.get("TYPESAFE_API_KEY"):
+    # 5. Remote TypeSafe Jev API
+    if os.environ.get("TYPESAFE_API_KEY") or os.environ.get("JEV_AI_API_KEY"):
         return jev.judge
 
-    # 5. Fallback to default LLM in catalog
+    # 6. Fallback to default LLM in catalog
     return _find_default_llm_judge(config)
 
 
@@ -303,6 +340,8 @@ async def on_startup():
                 except Exception as ex:
                     log.warning("Warmup failed: %s", ex)
             asyncio.create_task(_bg_warmup())
+        elif isinstance(clf, JevClassifier):
+            log.info("Active decision classifier: Jev AI (Endpoint: %s, Model: %s)", clf.systemone_url, clf.model)
     except Exception as exc:
         log.warning("Warmup warning: %s", exc)
 
@@ -397,6 +436,28 @@ async def get_system_status():
         except Exception:
             pass
 
+    active_clf = getattr(ar_server.router, "classifier", None)
+    configured_backend = str(clf_cfg.get("backend", "local")).lower()
+    is_jev = isinstance(active_clf, JevClassifier) or configured_backend in ("jev", "hosted")
+
+    if is_jev:
+        clf_backend = "jev"
+        clf_name = "Jev AI"
+        jev_mod = getattr(active_clf, "model", None) or (clf_cfg.get("jev", {}) or {}).get("model") or "jev-latest"
+        jev_url = getattr(active_clf, "base_url", None) or (clf_cfg.get("jev", {}) or {}).get("base_url") or "https://jev-ai.pro/api/v1/"
+        engine_display = f"Jev AI 云端决策模型 ({jev_mod})"
+        endpoint_display = jev_url
+    elif configured_backend in ("local", "laya"):
+        clf_backend = "laya"
+        clf_name = "Laya"
+        engine_display = f"Laya 本地模型 ({accelerator})"
+        endpoint_display = "本地硬件运算"
+    else:
+        clf_backend = "heuristic"
+        clf_name = "启发式规则"
+        engine_display = "启发式静态规则"
+        endpoint_display = "规则仲裁"
+
     return {
         "status": "online",
         "uptime_seconds": round(time.time() - START_TIME, 1),
@@ -409,9 +470,15 @@ async def get_system_status():
         "cuda_vram_used_mb": cuda_vram_used_mb,
         "cuda_vram_free_mb": cuda_vram_free_mb,
         "mps_available": mps_ok,
-        "classifier_backend": clf_cfg.get("backend", "local"),
-        "classifier_model": clf_cfg.get("model", "convaiinnovations/laya"),
+        "classifier_backend": clf_backend,
+        "classifier_name": clf_name,
+        "is_jev": is_jev,
+        "engine_display": engine_display,
+        "endpoint_display": endpoint_display,
+        "classifier_model": (clf_cfg.get("jev", {}) or {}).get("model", "jev-latest") if is_jev else clf_cfg.get("model", "convaiinnovations/laya"),
         "classifier_subfolder": clf_cfg.get("subfolder", "multilingual"),
+        "jev_base_url": (clf_cfg.get("jev", {}) or {}).get("base_url") if isinstance(clf_cfg.get("jev"), dict) else clf_cfg.get("base_url", "https://jev-ai.pro/api/v1/"),
+        "jev_model": (clf_cfg.get("jev", {}) or {}).get("model") if isinstance(clf_cfg.get("jev"), dict) else clf_cfg.get("model", "jev-latest"),
         "active_policy": pol_cfg.get("name", "F_expected"),
         "providers_count": len(cfg.get("providers", {})),
         "models_count": len(cfg.get("models", [])),
@@ -430,6 +497,12 @@ async def get_config():
     for prov_name, prov in (cfg.get("providers") or {}).items():
         if isinstance(prov, dict) and "api_key" in prov:
             prov["api_key"] = mask_secret(prov["api_key"])
+    # 敏感信息脱敏：Jev API Key
+    clf = (cfg.get("policy") or {}).get("classifier") or {}
+    if isinstance(clf.get("jev"), dict) and "api_key" in clf["jev"]:
+        clf["jev"]["api_key"] = mask_secret(clf["jev"]["api_key"])
+    if "api_key" in clf:
+        clf["api_key"] = mask_secret(clf["api_key"])
     return cfg
 
 
@@ -453,11 +526,132 @@ async def update_config(payload: ConfigUpdateRequest):
                     orig_prov = (existing_cfg.get("providers") or {}).get(prov_name, {})
                     prov["api_key"] = orig_prov.get("api_key", in_key)
 
+        # 恢复 Jev API Key
+        in_clf = (raw_dict.get("policy") or {}).get("classifier") or {}
+        orig_clf = (existing_cfg.get("policy") or {}).get("classifier") or {}
+        if isinstance(in_clf.get("jev"), dict):
+            in_jev_key = str(in_clf["jev"].get("api_key") or "")
+            if "***" in in_jev_key:
+                orig_jev = orig_clf.get("jev") if isinstance(orig_clf.get("jev"), dict) else {}
+                in_clf["jev"]["api_key"] = orig_jev.get("api_key", in_jev_key)
+        if "***" in str(in_clf.get("api_key") or ""):
+            in_clf["api_key"] = orig_clf.get("api_key", in_clf.get("api_key"))
+
         save_config(raw_dict)
         reload_router_system()
         return {"status": "ok", "message": "配置已保存并实时生效"}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"保存配置失败: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Jev Server Endpoint Health & Connectivity Testing API
+# ---------------------------------------------------------------------------
+class JevTestRequest(BaseModel):
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+
+
+@app.post("/api/jev/test")
+async def test_jev_endpoint(req: JevTestRequest):
+    """Test connection to user's Jev endpoint without running inference."""
+    raw_url = expand_env_vars(req.base_url) if req.base_url else None
+    raw_key = expand_env_vars(req.api_key) if req.api_key else None
+
+    # 如果传入的 key 是掩码值或未输入，尝试从已存配置或环境变量中读取真实密钥
+    if not raw_key or "***" in raw_key:
+        current_cfg = get_current_raw_config()
+        clf_cfg = (current_cfg.get("policy") or {}).get("classifier") or {}
+        jev_cfg = clf_cfg.get("jev") if isinstance(clf_cfg.get("jev"), dict) else {}
+        raw_key = jev_cfg.get("api_key") or clf_cfg.get("api_key") or os.environ.get("JEV_AI_API_KEY") or os.environ.get("TYPESAFE_API_KEY") or raw_key
+
+    try:
+        client = JevClassifier(base_url=raw_url, api_key=raw_key, model=req.model or "jev-latest")
+        loop = asyncio.get_event_loop()
+        res = await loop.run_in_executor(None, client.test_connection)
+        return res
+    except Exception as exc:
+        return {"status": "error", "error": f"测试执行异常: {exc}"}
+
+
+class JevDecisionTestRequest(BaseModel):
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    prompt: str | None = None
+    test_judge: bool = True
+
+
+@app.post("/api/jev/test-decision")
+async def test_jev_decision(req: JevDecisionTestRequest):
+    """Run a live decision/classification and optional adequacy test using Jev."""
+    raw_url = expand_env_vars(req.base_url) if req.base_url else None
+    raw_key = expand_env_vars(req.api_key) if req.api_key else None
+
+    # 如果传入的 key 是掩码值或未输入，尝试从已存配置或环境变量中读取真实密钥
+    if not raw_key or "***" in raw_key:
+        current_cfg = get_current_raw_config()
+        clf_cfg = (current_cfg.get("policy") or {}).get("classifier") or {}
+        jev_cfg = clf_cfg.get("jev") if isinstance(clf_cfg.get("jev"), dict) else {}
+        raw_key = jev_cfg.get("api_key") or clf_cfg.get("api_key") or os.environ.get("JEV_AI_API_KEY") or os.environ.get("TYPESAFE_API_KEY") or raw_key
+
+    client = JevClassifier(base_url=raw_url, api_key=raw_key, model=req.model or "jev-latest")
+    prompt = (req.prompt or "帮我写一个Python快速排序算法，要求带注释并处理边界情况").strip()
+
+    loop = asyncio.get_event_loop()
+    def _run():
+        if not client.api_key:
+            return {"status": "error", "error": "未配置 Jev API Key，请在上方输入框填入或设置环境变量 JEV_AI_API_KEY"}
+
+        t0 = time.perf_counter()
+        try:
+            clf_res = client(prompt)
+            latency_clf_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+            if clf_res.failed:
+                return {
+                    "status": "error",
+                    "error": "Jev 分类调用失败，请检查服务器地址是否可达、API Key 是否有效或账户余额是否充足",
+                    "url": client.systemone_url,
+                }
+
+            judge_res = None
+            latency_judge_ms = 0.0
+            if req.test_judge:
+                t1 = time.perf_counter()
+                sample_ans = "def quicksort(arr): return arr if len(arr) <= 1 else quicksort([x for x in arr[1:] if x < arr[0]]) + [arr[0]] + quicksort([x for x in arr[1:] if x >= arr[0]])"
+                judge_res = client.judge(prompt, sample_ans, category=clf_res.category)
+                latency_judge_ms = round((time.perf_counter() - t1) * 1000.0, 1)
+
+            return {
+                "status": "ok",
+                "message": "Jev 决策测试成功，模型已正常生效并完成分析！",
+                "classification": {
+                    "category": clf_res.category,
+                    "category_confidence": round(clf_res.category_confidence, 3),
+                    "difficulty": round(clf_res.difficulty, 3),
+                    "difficulty_confidence": round(clf_res.difficulty_confidence, 3),
+                    "needs_tools": round(clf_res.needs_tools, 3),
+                    "needs_vision": round(clf_res.needs_vision, 3),
+                    "needs_long_context": round(clf_res.needs_long_context, 3),
+                    "stakes": round(clf_res.stakes, 3),
+                    "latency_ms": latency_clf_ms,
+                    "model": clf_res.model or client.model,
+                    "input_tokens": clf_res.input_tokens,
+                    "output_tokens": clf_res.output_tokens,
+                },
+                "judge": {
+                    "p_adequate": round(judge_res.p_adequate, 3) if judge_res else None,
+                    "failure": judge_res.failure if judge_res else None,
+                    "latency_ms": latency_judge_ms,
+                } if judge_res else None,
+                "latency_total_ms": round(latency_clf_ms + latency_judge_ms, 1),
+                "endpoint": client.systemone_url,
+            }
+        except Exception as exc:
+            return {"status": "error", "error": f"Jev 决策测试异常: {exc}", "url": client.systemone_url}
+
+    return await loop.run_in_executor(None, _run)
 
 
 # ---------------------------------------------------------------------------
@@ -796,7 +990,9 @@ async def test_single_prompt(req: SingleTestRequest):
             decision_reason = route_res.reason
 
             clf_dev = getattr(router.classifier, "actual_device", "mps") if hasattr(router, "classifier") else "mps"
-            laya_log = add_log("INFO", f"Laya 本地模型 ({clf_dev.upper()} 加速) 特征分类完成: 类别={clf.category if clf else 'general'}, 难度={clf.difficulty if clf else 0.5:.3f}, 错误代价={clf.stakes if clf else 0.2:.3f}, 耗时={laya_ms}ms", "laya")
+            is_jev_clf = isinstance(getattr(router, "classifier", None), JevClassifier) or hasattr(getattr(router, "classifier", None), "systemone_url")
+            clf_engine_name = f"Jev AI 云端模型 ({getattr(router.classifier, 'model', 'jev-latest')})" if is_jev_clf else f"Laya 本地模型 ({clf_dev.upper()} 加速)"
+            laya_log = add_log("INFO", f"{clf_engine_name} 特征分类完成: 类别={clf.category if clf else 'general'}, 难度={clf.difficulty if clf else 0.5:.3f}, 错误代价={clf.stakes if clf else 0.2:.3f}, 耗时={laya_ms}ms", "classifier")
             dec_log = add_log("INFO", f"策略算法仲裁完成: 选定目标模型 [{chosen_name}] (提供商: {provider_name}, 算法排序耗时: {scoring_ms}ms)", "decision")
             reason_log = add_log("INFO", f"决策理由: {decision_reason}", "decision")
 
@@ -822,6 +1018,8 @@ async def test_single_prompt(req: SingleTestRequest):
                     "difficulty": round(clf.difficulty, 3) if clf else 0.5,
                     "stakes": round(clf.stakes, 3) if clf else 0.2,
                     "device": clf_dev,
+                    "engine_type": "jev" if is_jev_clf else "laya",
+                    "engine_name": clf_engine_name,
                     "classifier_model": getattr(router.classifier, "model", "convaiinnovations/laya") if hasattr(router, "classifier") else "laya",
                 },
                 "decision": {
@@ -1177,6 +1375,9 @@ async def test_single_prompt(req: SingleTestRequest):
                     "difficulty": round(clf.difficulty, 3) if clf else 0.5,
                     "stakes": round(clf.stakes, 3) if clf else 0.2,
                     "device": clf_dev,
+                    "is_jev": is_jev_clf,
+                    "engine_type": "jev" if is_jev_clf else "laya",
+                    "engine_name": clf_engine_name,
                     "classifier_model": getattr(router.classifier, "model", "convaiinnovations/laya") if hasattr(router, "classifier") else "laya",
                 },
                 "decision": {
@@ -1242,7 +1443,9 @@ async def test_single_prompt(req: SingleTestRequest):
     decision_reason = route_res.reason
 
     clf_dev = getattr(router.classifier, "actual_device", "mps") if hasattr(router, "classifier") else "mps"
-    add_log("INFO", f"Laya 本地模型 ({clf_dev.upper()} 加速) 特征分类完成: 类别={clf.category if clf else 'general'}, 难度={clf.difficulty if clf else 0.5:.3f}, 错误代价={clf.stakes if clf else 0.2:.3f}, 耗时={laya_ms}ms", "laya")
+    is_jev_clf = isinstance(getattr(router, "classifier", None), JevClassifier) or hasattr(getattr(router, "classifier", None), "systemone_url")
+    clf_engine_name = f"Jev AI 云端模型 ({getattr(router.classifier, 'model', 'jev-latest')})" if is_jev_clf else f"Laya 本地模型 ({clf_dev.upper()} 加速)"
+    add_log("INFO", f"{clf_engine_name} 特征分类完成: 类别={clf.category if clf else 'general'}, 难度={clf.difficulty if clf else 0.5:.3f}, 错误代价={clf.stakes if clf else 0.2:.3f}, 耗时={laya_ms}ms", "classifier")
     add_log("INFO", f"策略算法仲裁完成: 选定目标模型 [{chosen_name}] (提供商: {provider_name}, 算法排序耗时: {scoring_ms}ms)", "decision")
     add_log("INFO", f"决策理由: {decision_reason}", "decision")
 
@@ -1557,6 +1760,9 @@ async def test_single_prompt(req: SingleTestRequest):
             "difficulty": round(clf.difficulty, 3) if clf else 0.5,
             "stakes": round(clf.stakes, 3) if clf else 0.2,
             "device": clf_dev,
+            "is_jev": is_jev_clf,
+            "engine_type": "jev" if is_jev_clf else "laya",
+            "engine_name": clf_engine_name,
             "classifier_model": getattr(router.classifier, "model", "convaiinnovations/laya") if hasattr(router, "classifier") else "laya",
         },
         "decision": {

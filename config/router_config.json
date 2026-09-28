@@ -137,13 +137,18 @@
       "usd_cny_rate": 6.8
     },
     "classifier": {
-      "backend": "local",
+      "backend": "jev",
       "device": "auto",
       "model": "convaiinnovations/laya",
       "subfolder": "multilingual",
       "threads": 4,
       "request_chars": 6000,
-      "context_chars": 2000
+      "context_chars": 2000,
+      "jev": {
+        "base_url": "https://jev-ai.pro/api/v1/",
+        "api_key": "",
+        "model": "jev-latest"
+      }
     },
     "failure_cost_multiplier": 1,
     "stakes_usd": 4,
@@ -157,7 +162,7 @@
     ],
     "verify": {
       "enabled": true,
-      "judge_model": "laya",
+      "judge_model": "jev",
       "max_price_per_mtok": 2.5,
       "max_capability": 77.5,
       "thresholds": {
