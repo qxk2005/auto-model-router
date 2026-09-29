@@ -1978,8 +1978,14 @@ function openEditProviderModal(id) {
   document.getElementById("providerModal").style.display = "flex";
 }
 
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = "flex";
+}
+
 function closeModal(id) {
-  document.getElementById(id).style.display = "none";
+  const el = document.getElementById(id);
+  if (el) el.style.display = "none";
 }
 
 async function fetchModelsForCurrentModal() {
@@ -4001,7 +4007,12 @@ async function applyAllLeaderboardRatings() {
 let lastEvaluatedRolesData = null;
 
 function openEvaluateRolesModal() {
-  openModal("modalEvaluateRoles");
+  const modal = document.getElementById("modalEvaluateRoles");
+  if (modal) {
+    modal.style.display = "flex";
+  } else {
+    openModal("modalEvaluateRoles");
+  }
   triggerEvaluateRoles();
 }
 
