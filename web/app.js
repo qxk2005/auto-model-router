@@ -371,39 +371,58 @@ function renderModels() {
 
   const allModels = currentConfig.models || [];
   const enabledModels = allModels.filter(m => m.enabled !== false);
+  const baselines = currentConfig.policy?.baselines || {};
 
   let expModel = null;
   let chpModel = null;
-  let highestPrice = -1;
-  let lowestPaidPrice = Infinity;
-  let lowestOverallPrice = Infinity;
+  let fallbackModel = null;
 
-  enabledModels.forEach(m => {
-    const p = m.prices || { input: 0, output: 0 };
-    const tot = (p.input || 0) + (p.output || 0);
-    const isFree = m.free || (tot === 0);
+  if (baselines.frontier) {
+    expModel = enabledModels.find(m => m.name === baselines.frontier) || null;
+  }
+  if (baselines.economy) {
+    chpModel = enabledModels.find(m => m.name === baselines.economy) || null;
+  }
+  if (baselines.fallback) {
+    fallbackModel = enabledModels.find(m => m.name === baselines.fallback) || null;
+  }
 
-    if (tot > highestPrice) {
-      highestPrice = tot;
-      expModel = m;
-    }
-    if (tot < lowestOverallPrice) {
-      lowestOverallPrice = tot;
-    }
-    if (!isFree && tot < lowestPaidPrice) {
-      lowestPaidPrice = tot;
-      chpModel = m;
-    }
-  });
+  // 若未指定 baselines，平滑回退到数学单价推导
+  if (!expModel || !chpModel) {
+    let highestPrice = -1;
+    let lowestPaidPrice = Infinity;
+    let lowestOverallPrice = Infinity;
 
-  if (!chpModel && enabledModels.length > 0) {
-    chpModel = enabledModels.find(m => ((m.prices?.input || 0) + (m.prices?.output || 0)) === lowestOverallPrice) || enabledModels[0];
+    enabledModels.forEach(m => {
+      const p = m.prices || { input: 0, output: 0 };
+      const tot = (p.input || 0) + (p.output || 0);
+      const isFree = m.free || (tot === 0);
+
+      if (tot > highestPrice) {
+        highestPrice = tot;
+        if (!expModel) expModel = m;
+      }
+      if (tot < lowestOverallPrice) {
+        lowestOverallPrice = tot;
+      }
+      if (!isFree && tot < lowestPaidPrice) {
+        lowestPaidPrice = tot;
+        if (!chpModel) chpModel = m;
+      }
+    });
+
+    if (!chpModel && enabledModels.length > 0) {
+      chpModel = enabledModels.find(m => ((m.prices?.input || 0) + (m.prices?.output || 0)) === lowestOverallPrice) || enabledModels[0];
+    }
+  }
+
+  if (!fallbackModel) {
+    fallbackModel = expModel || chpModel;
   }
 
   const verifyCfg = currentConfig.policy?.verify || {};
   const isVerifyEnabled = verifyCfg.enabled !== false;
-  const judgeModelName = verifyCfg.judge_model || "";
-  const fallbackModel = expModel || chpModel;
+  const judgeModelName = baselines.judge || verifyCfg.judge_model || "";
 
   const rolesBanner = document.getElementById("dispatchRolesBanner");
   if (rolesBanner) {
@@ -416,9 +435,14 @@ function renderModels() {
 
     rolesBanner.innerHTML = `
       <div class="dispatch-roles-banner">
-        <div class="roles-banner-title">
-          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
-          <span>当前生效调度基线与系统角色映射 (Active Dispatch Roles)</span>
+        <div class="roles-banner-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+            <span>当前生效调度基线与系统角色映射 (Active Dispatch Roles)</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="openEvaluateRolesModal()" style="font-size: 11.5px; padding: 2px 10px; border-color: rgba(2, 132, 199, 0.4); color: #0284c7; background: #fff; cursor: pointer;">
+            <span>🤖 重新评判角色映射</span>
+          </button>
         </div>
         <div class="roles-banner-items">
           <div class="role-banner-item"><span class="r-label">🎯 主力旗舰基准 (Baseline):</span> <span class="r-val r-exp">${expModel ? expModel.name : "未配置"}</span></div>
@@ -465,25 +489,47 @@ function renderModels() {
 
     const roleBadges = [];
     if (isEnabled) {
-      if (expModel && m.name === expModel.name) {
-        roleBadges.push('<span class="badge badge-role-frontier" title="综合单价最高的主力旗舰模型，负责高难/高风险请求并作为全量对比 100% 基线">🎯 主力旗舰基准 (Baseline)</span>');
-      }
-      if (chpModel && m.name === chpModel.name) {
-        roleBadges.push('<span class="badge badge-role-economy" title="低成本经济基准模型，负责日常低难度高性价比响应">⚡ 经济低成本基准</span>');
-      }
-      if (m.free || (((p.input || 0) === 0 && (p.output || 0) === 0)) || ["lm-studio", "ollama", "local"].includes(m.provider)) {
-        roleBadges.push('<span class="badge badge-role-free" title="本地端点或免 Token 计费的零边际成本模型">💻 本地/零成本</span>');
-      }
-      if (isVerifyEnabled && (m.name === judgeModelName || (judgeModelName.toLowerCase() === "jev" && m.name === expModel?.name))) {
-        if (m.name === judgeModelName) {
-          roleBadges.push('<span class="badge badge-role-judge" title="质量验收阶段担任判别与抽检裁决的模型">⚖️ 质检验收裁决官</span>');
+      if (Array.isArray(m.roles) && m.roles.length > 0) {
+        const roleReasonTip = m.role_reason ? ` - 评判理由: ${m.role_reason}` : "";
+        if (m.roles.includes("frontier")) {
+          roleBadges.push(`<span class="badge badge-role-frontier" title="🎯 主力旗舰基准 (Baseline)${roleReasonTip}">🎯 主力旗舰基准 (Baseline)</span>`);
         }
-      }
-      if (fallbackModel && m.name === fallbackModel.name) {
-        roleBadges.push('<span class="badge badge-role-fallback" title="当下级模型失败、超时或验收不满意时升级/转移的目标模型">🛡️ 故障降级兜底</span>');
-      }
-      if (roleBadges.length === 0) {
-        roleBadges.push('<span class="badge badge-role-balanced" title="位于旗舰与经济层级之间的多策略常规候选模型">⚖️ 常规路由候选</span>');
+        if (m.roles.includes("economy")) {
+          roleBadges.push(`<span class="badge badge-role-economy" title="⚡ 经济低成本基准${roleReasonTip}">⚡ 经济低成本基准</span>`);
+        }
+        if (m.roles.includes("judge")) {
+          roleBadges.push(`<span class="badge badge-role-judge" title="⚖️ 质检验收裁决官${roleReasonTip}">⚖️ 质检验收裁决官</span>`);
+        }
+        if (m.roles.includes("fallback")) {
+          roleBadges.push(`<span class="badge badge-role-fallback" title="🛡️ 故障降级兜底${roleReasonTip}">🛡️ 故障降级兜底</span>`);
+        }
+        if (m.roles.includes("free")) {
+          roleBadges.push(`<span class="badge badge-role-free" title="💻 本地/零成本${roleReasonTip}">💻 本地/零成本</span>`);
+        }
+        if (roleBadges.length === 0) {
+          roleBadges.push(`<span class="badge badge-role-balanced" title="⚖️ 常规路由候选${roleReasonTip}">⚖️ 常规路由候选</span>`);
+        }
+      } else {
+        if (expModel && m.name === expModel.name) {
+          roleBadges.push('<span class="badge badge-role-frontier" title="综合单价最高的主力旗舰模型，负责高难/高风险请求并作为全量对比 100% 基线">🎯 主力旗舰基准 (Baseline)</span>');
+        }
+        if (chpModel && m.name === chpModel.name) {
+          roleBadges.push('<span class="badge badge-role-economy" title="低成本经济基准模型，负责日常低难度高性价比响应">⚡ 经济低成本基准</span>');
+        }
+        if (m.free || (((p.input || 0) === 0 && (p.output || 0) === 0)) || ["lm-studio", "ollama", "local"].includes(m.provider)) {
+          roleBadges.push('<span class="badge badge-role-free" title="本地端点或免 Token 计费的零边际成本模型">💻 本地/零成本</span>');
+        }
+        if (isVerifyEnabled && (m.name === judgeModelName || (judgeModelName.toLowerCase() === "jev" && m.name === expModel?.name))) {
+          if (m.name === judgeModelName) {
+            roleBadges.push('<span class="badge badge-role-judge" title="质量验收阶段担任判别与抽检裁决的模型">⚖️ 质检验收裁决官</span>');
+          }
+        }
+        if (fallbackModel && m.name === fallbackModel.name) {
+          roleBadges.push('<span class="badge badge-role-fallback" title="当下级模型失败、超时或验收不满意时升级/转移的目标模型">🛡️ 故障降级兜底</span>');
+        }
+        if (roleBadges.length === 0) {
+          roleBadges.push('<span class="badge badge-role-balanced" title="位于旗舰与经济层级之间的多策略常规候选模型">⚖️ 常规路由候选</span>');
+        }
       }
     }
 
@@ -3948,4 +3994,269 @@ async function applyAllLeaderboardRatings() {
     if (btn) btn.innerHTML = origText;
   }
 }
+
+// ---------------------------------------------------------------------------
+// 决策模型智能评判角色映射交互逻辑
+// ---------------------------------------------------------------------------
+let lastEvaluatedRolesData = null;
+
+function openEvaluateRolesModal() {
+  openModal("modalEvaluateRoles");
+  triggerEvaluateRoles();
+}
+
+async function triggerEvaluateRoles() {
+  const loadingEl = document.getElementById("evalRolesLoading");
+  const contentEl = document.getElementById("evalRolesContent");
+  const footerEl = document.getElementById("evalRolesFooter");
+
+  if (loadingEl) loadingEl.style.display = "block";
+  if (contentEl) contentEl.style.display = "none";
+  if (footerEl) footerEl.style.display = "none";
+
+  try {
+    const res = await fetch("/api/models/evaluate-roles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== "ok") {
+      throw new Error(data.detail || data.error || "评判服务异常");
+    }
+
+    lastEvaluatedRolesData = data;
+    renderEvaluatedRolesModal(data);
+
+    if (loadingEl) loadingEl.style.display = "none";
+    if (contentEl) contentEl.style.display = "block";
+    if (footerEl) footerEl.style.display = "flex";
+  } catch (err) {
+    if (loadingEl) {
+      loadingEl.innerHTML = `
+        <div style="font-size: 32px; margin-bottom: 12px;">⚠️</div>
+        <div style="font-size: 15px; font-weight: 700; color: var(--danger); margin-bottom: 8px;">智能评判失败</div>
+        <div style="font-size: 12.5px; color: var(--text-muted); max-width: 480px; margin: 0 auto 16px;">${err.message}</div>
+        <button class="btn btn-secondary btn-sm" onclick="triggerEvaluateRoles()">🔄 重试</button>
+      `;
+    }
+  }
+}
+
+function renderEvaluatedRolesModal(data) {
+  const engine = data.engine || {};
+  const rec = data.recommendations || {};
+  const analysis = data.model_analysis || [];
+  const allModels = data.all_enabled_models || [];
+
+  // 1. 渲染引擎信息横幅
+  const engineCard = document.getElementById("evalEngineCard");
+  if (engineCard) {
+    const pingText = engine.decision_probe_ms > 0 ? ` · 在线探测延迟 ${engine.decision_probe_ms}ms` : "";
+    engineCard.innerHTML = `
+      <div class="eval-engine-meta">
+        <div class="eval-engine-chip">🧠</div>
+        <div>
+          <div class="eval-engine-title">评判决策大脑: ${engine.name} (${engine.model})</div>
+          <div class="eval-engine-subtitle">后端架构: ${engine.type} · 评判分析耗时 ${engine.latency_ms}ms${pingText}</div>
+        </div>
+      </div>
+      <div>
+        <span class="badge badge-purple" style="font-size: 11px;">状态: 在线激活</span>
+      </div>
+    `;
+  }
+
+  // 2. 渲染 AI 述职规划建议
+  const summaryEl = document.getElementById("evalSummaryText");
+  if (summaryEl) {
+    summaryEl.textContent = data.summary_reasoning || "全景评判完成，已生成最优角色配置。";
+  }
+
+  // 3. 渲染 4 个角色卡片
+  const rolesGrid = document.getElementById("evalRolesGrid");
+  if (rolesGrid) {
+    const roleDefs = [
+      {
+        key: "frontier",
+        icon: "🎯",
+        name: "主力旗舰基准 (Baseline)",
+        desc: "承担高难度、高价值与复杂推理，并作为全局性能基线与全量 100% 成本参照物",
+        colorClass: "badge-role-frontier",
+        selected: rec.frontier?.model || "",
+        reason: rec.frontier?.reason || "",
+      },
+      {
+        key: "economy",
+        icon: "⚡",
+        name: "经济低成本基准",
+        desc: "日常低难度、高频调用与大吞吐常规请求主力，兼具高能效比与极低 Token 消耗",
+        colorClass: "badge-role-economy",
+        selected: rec.economy?.model || "",
+        reason: rec.economy?.reason || "",
+      },
+      {
+        key: "judge",
+        icon: "⚖️",
+        name: "质检验收裁决官",
+        desc: "对生成结果执行二次质检、抽检与打分，决定是否启动级联重试或模型升级",
+        colorClass: "badge-role-judge",
+        selected: rec.judge?.model || "",
+        reason: rec.judge?.reason || "",
+        includeJevOption: true,
+      },
+      {
+        key: "fallback",
+        icon: "🛡️",
+        name: "故障降级兜底",
+        desc: "当模型响应超时、网络抖动或超限时转移接管的坚固屏障，支持与旗舰身兼两职",
+        colorClass: "badge-role-fallback",
+        selected: rec.fallback?.model || "",
+        reason: rec.fallback?.reason || "",
+      },
+    ];
+
+    rolesGrid.innerHTML = roleDefs.map(rd => {
+      let optionsHtml = "";
+      if (rd.includeJevOption) {
+        optionsHtml += `<option value="jev" ${rd.selected === "jev" ? "selected" : ""}>Jev (云端裁决模型 - 独立客观)</option>`;
+      }
+      allModels.forEach(mName => {
+        optionsHtml += `<option value="${mName}" ${rd.selected === mName ? "selected" : ""}>${mName}</option>`;
+      });
+
+      return `
+        <div class="eval-role-card">
+          <div class="eval-role-card-header">
+            <div class="eval-role-card-title">
+              <span>${rd.icon}</span>
+              <span class="badge ${rd.colorClass}">${rd.name}</span>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted);">角色指派</div>
+          </div>
+          <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.4;">
+            ${rd.desc}
+          </div>
+          <div style="margin-top: 4px;">
+            <select class="form-control" id="evalRoleSelect_${rd.key}" style="font-weight: 600; font-family: var(--font-mono); font-size: 12.5px;">
+              ${optionsHtml}
+            </select>
+          </div>
+          <div class="eval-role-reason" id="evalRoleReason_${rd.key}">
+            💡 <strong>评判理由:</strong> ${rd.reason}
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  // 4. 渲染模型评分折叠表
+  const scoresTableContainer = document.getElementById("evalModelScoresTable");
+  if (scoresTableContainer && analysis.length > 0) {
+    scoresTableContainer.innerHTML = `
+      <table class="eval-scores-table">
+        <thead>
+          <tr>
+            <th>模型名称</th>
+            <th>供应商</th>
+            <th>主力旗舰 (Frontier)</th>
+            <th>经济适用 (Economy)</th>
+            <th>质校验收 (Judge)</th>
+            <th>故障兜底 (Fallback)</th>
+            <th>AI 综合评定建议</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${analysis.map(an => `
+            <tr>
+              <td style="font-family: var(--font-mono); font-weight: 700; color: var(--primary);">${an.name}</td>
+              <td><span class="badge badge-purple" style="font-size: 10px;">${an.provider}</span></td>
+              <td style="font-family: var(--font-mono); font-weight: 600; color: #b91c1c;">${an.scores.frontier}</td>
+              <td style="font-family: var(--font-mono); font-weight: 600; color: #047857;">${an.scores.economy}</td>
+              <td style="font-family: var(--font-mono); font-weight: 600; color: #6d28d9;">${an.scores.judge}</td>
+              <td style="font-family: var(--font-mono); font-weight: 600; color: #b45309;">${an.scores.fallback}</td>
+              <td style="font-size: 11px; color: var(--text-muted);">${an.reasoning}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
+  }
+}
+
+async function applyEvaluatedRoles() {
+  if (!lastEvaluatedRolesData) return;
+
+  const btn = document.getElementById("btnApplyEvaluatedRoles");
+  const origText = btn ? btn.innerHTML : "";
+  if (btn) btn.innerHTML = "<span>⏳ 保存中...</span>";
+
+  try {
+    const fModel = document.getElementById("evalRoleSelect_frontier")?.value || "";
+    const eModel = document.getElementById("evalRoleSelect_economy")?.value || "";
+    const jModel = document.getElementById("evalRoleSelect_judge")?.value || "";
+    const fbModel = document.getElementById("evalRoleSelect_fallback")?.value || "";
+
+    const baselines = {
+      frontier: fModel,
+      economy: eModel,
+      judge: jModel,
+      fallback: fbModel,
+    };
+
+    // 重新组织各模型分配的角色（支持身兼多职）
+    const modelRoles = {};
+    const allModels = lastEvaluatedRolesData.all_enabled_models || [];
+    allModels.forEach(m => { modelRoles[m] = []; });
+
+    if (fModel && modelRoles[fModel]) modelRoles[fModel].push("frontier");
+    if (eModel && modelRoles[eModel]) modelRoles[eModel].push("economy");
+    if (jModel && jModel !== "jev" && modelRoles[jModel]) modelRoles[jModel].push("judge");
+    if (fbModel && modelRoles[fbModel]) modelRoles[fbModel].push("fallback");
+
+    // 免费模型标记
+    const freeModels = lastEvaluatedRolesData.recommendations?.free || [];
+    freeModels.forEach(fm => {
+      if (modelRoles[fm] && !modelRoles[fm].includes("free")) {
+        modelRoles[fm].push("free");
+      }
+    });
+
+    const roleReasons = {};
+    const rec = lastEvaluatedRolesData.recommendations || {};
+    if (fModel && rec.frontier?.reason) roleReasons[fModel] = rec.frontier.reason;
+    if (eModel && rec.economy?.reason) roleReasons[eModel] = rec.economy.reason;
+    if (jModel && jModel !== "jev" && rec.judge?.reason) roleReasons[jModel] = rec.judge.reason;
+    if (fbModel && rec.fallback?.reason) {
+      roleReasons[fbModel] = roleReasons[fbModel] ? `${roleReasons[fbModel]} 同时负责故障兜底。` : rec.fallback.reason;
+    }
+
+    const res = await fetch("/api/models/apply-roles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        baselines: baselines,
+        model_roles: modelRoles,
+        role_reasons: roleReasons,
+      }),
+    });
+    const result = await res.json();
+    if (!res.ok || result.status !== "ok") {
+      throw new Error(result.detail || result.error || "保存失败");
+    }
+
+    showToast("模型角色调度映射已采纳并实时生效！", "success");
+    closeModal("modalEvaluateRoles");
+
+    // 热重载前端配置并重新渲染
+    if (typeof loadConfig === "function") {
+      await loadConfig();
+    }
+  } catch (err) {
+    showToast(`采纳角色映射失败: ${err.message}`, "danger");
+  } finally {
+    if (btn) btn.innerHTML = origText;
+  }
+}
+
 

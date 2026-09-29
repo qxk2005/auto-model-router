@@ -47,7 +47,11 @@
       "context_tokens": 65536,
       "tools": true,
       "vision": true,
-      "enabled": true
+      "enabled": true,
+      "roles": [
+        "economy"
+      ],
+      "role_reason": "能效比得分 78.6 分，计费单价 ¥3.0/1M"
     },
     {
       "name": "deepseek-v4-pro",
@@ -73,7 +77,11 @@
       "context_tokens": 128000,
       "tools": true,
       "vision": true,
-      "enabled": true
+      "enabled": true,
+      "roles": [
+        "fallback"
+      ],
+      "role_reason": "容错稳定性评分 95.7 分，128k 上下文兜底"
     },
     {
       "name": "gemma-4-e4b-it",
@@ -126,7 +134,11 @@
       "context_tokens": 128000,
       "tools": true,
       "vision": true,
-      "enabled": true
+      "enabled": true,
+      "roles": [
+        "frontier"
+      ],
+      "role_reason": "高阶综合得分 99.0 分，能够胜任高难决策"
     }
   ],
   "policy": {
@@ -183,6 +195,12 @@
       ],
       "judge_usd": 0.0004,
       "judge_seconds": 0.05
+    },
+    "baselines": {
+      "frontier": "gemini-3-8-flash-high",
+      "economy": "deepseek-v4-flash",
+      "judge": "jev",
+      "fallback": "deepseek-v4-pro"
     }
   },
   "subscriptions": {}
