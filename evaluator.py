@@ -237,8 +237,10 @@ class BenchmarkEvaluator:
         chp_name = cheap_model.name if cheap_model else ""
 
         verify_cfg = policy_cfg.get("verify", {}) if isinstance(policy_cfg, dict) else {}
-        judge_name = verify_cfg.get("judge_model", "")
-        fallback_name = exp_name if exp_name else chp_name
+        verify_cfg = policy_cfg.get("verify", {}) if isinstance(policy_cfg, dict) else {}
+        baselines = policy_cfg.get("baselines", {}) if isinstance(policy_cfg, dict) else {}
+        judge_name = baselines.get("judge") or verify_cfg.get("judge_model", "")
+        fallback_name = baselines.get("fallback") or (exp_name if exp_name else chp_name)
 
         for am in active_models:
             m_name = am["name"]
@@ -279,14 +281,30 @@ class BenchmarkEvaluator:
         }
 
     def _get_baseline_models(self) -> tuple[ModelInfo | None, ModelInfo | None]:
-        """Find the most expensive (frontier) and cheapest (local/free) models in catalog."""
+        """Find the most expensive (frontier) and cheapest (local/free) models in catalog,
+        prioritizing explicit policy.baselines configurations if present."""
         if not self.catalog or not hasattr(self.catalog, "models"):
             return None, None
         models = [m for m in self.catalog.models if not getattr(m, "launch_only", False) and getattr(m, "enabled", True) is not False]
         if not models:
             return None, None
-        expensive = max(models, key=lambda m: (m.prices.input + m.prices.output) if m.prices else 0.0)
-        cheap = min(models, key=lambda m: (m.prices.input + m.prices.output) if m.prices else 0.0)
+
+        policy_cfg = self.config_raw.get("policy", {}) if isinstance(self.config_raw, dict) else {}
+        baselines = policy_cfg.get("baselines", {}) if isinstance(policy_cfg, dict) else {}
+        pref_frontier = baselines.get("frontier")
+        pref_economy = baselines.get("economy")
+
+        expensive = None
+        cheap = None
+        if pref_frontier:
+            expensive = next((m for m in models if m.name == pref_frontier), None)
+        if pref_economy:
+            cheap = next((m for m in models if m.name == pref_economy), None)
+
+        if not expensive:
+            expensive = max(models, key=lambda m: (m.prices.input + m.prices.output) if m.prices else 0.0)
+        if not cheap:
+            cheap = min(models, key=lambda m: (m.prices.input + m.prices.output) if m.prices else 0.0)
         return expensive, cheap
 
     def _calc_model_cost(self, model: ModelInfo, prompt_tokens: int, output_tokens: int) -> float:

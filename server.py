@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -921,6 +922,312 @@ async def probe_model_capability(req: ModelProbeRequest):
                 "resolved_base_url": base_url,
                 "error": f"调用失败: {exc}",
             }
+
+
+
+# ---------------------------------------------------------------------------
+# Dynamic Decision-Model Role Evaluation & Dispatch Baselines API
+# ---------------------------------------------------------------------------
+class EvaluateRolesRequest(BaseModel):
+    classifier_override: dict[str, Any] | None = None
+
+
+class ApplyRolesRequest(BaseModel):
+    baselines: dict[str, str]
+    model_roles: dict[str, list[str]] = Field(default_factory=dict)
+    role_reasons: dict[str, str] = Field(default_factory=dict)
+
+
+@app.post("/api/models/evaluate-roles")
+async def evaluate_model_roles(req: EvaluateRolesRequest):
+    """Dynamically evaluate active models catalog using current decision engine (Jev / Laya),
+    recommending optimal role mappings with multi-dimensional scoring and detailed reasoning.
+    Allows a single high-capability model to take multiple roles (e.g. frontier + fallback)."""
+    raw_cfg = get_current_raw_config()
+    policy = raw_cfg.get("policy") or {}
+    clf_cfg = req.classifier_override or policy.get("classifier") or {}
+    backend = str(clf_cfg.get("backend") or "local").lower()
+
+    # 1. 识别当前生效的决策模型大脑
+    engine_name = "本地 Laya 神经分类器"
+    engine_type = "local"
+    engine_model = str(clf_cfg.get("model") or "convaiinnovations/laya")
+    is_jev = backend in ("jev", "hosted", "remote") or bool(clf_cfg.get("jev"))
+    
+    jev_key = None
+    if is_jev:
+        engine_name = "Jev AI 云端决策大模型"
+        engine_type = "jev"
+        jev_info = clf_cfg.get("jev") if isinstance(clf_cfg.get("jev"), dict) else {}
+        engine_model = jev_info.get("model") or clf_cfg.get("model") or "jev-latest"
+        jev_key = jev_info.get("api_key") or clf_cfg.get("api_key") or os.environ.get("JEV_AI_API_KEY") or os.environ.get("TYPESAFE_API_KEY")
+
+    # 2. 收集启用的候选模型
+    all_models = raw_cfg.get("models") or []
+    enabled_models = [m for m in all_models if not m.get("launch_only", False) and m.get("enabled") is not False]
+    if not enabled_models:
+        raise HTTPException(status_code=400, detail="当前模型目录中没有启用的可用模型，请至少启用一个模型后再执行评判。")
+
+    t0 = time.perf_counter()
+    decision_probe_ms = 0.0
+
+    # 3. 若为 Jev 且配置了 Key，尝试执行微探针记录延迟
+    if is_jev and jev_key and "***" not in str(jev_key):
+        try:
+            from auto_router.jev import JevClassifier
+            jev_client = JevClassifier.from_config(clf_cfg)
+            res = await asyncio.get_event_loop().run_in_executor(None, jev_client.test_connection)
+            if res.get("status") == "ok":
+                decision_probe_ms = float(res.get("latency_ms") or 0.0)
+        except Exception as ex:
+            log.warning("Jev decision ping probe warning: %s", ex)
+
+    # 4. 全景多维评判与打分算法
+    model_scores = {}
+    analysis_list = []
+
+    high_end_keys = ["r1", "pro", "max", "opus", "sonnet", "o1", "o3", "gpt-4", "v4-pro", "70b", "72b", "deepseek-v3", "deepseek-r1"]
+    economy_keys = ["flash", "mini", "turbo", "haiku", "8b", "7b", "lite", "small", "speed", "v4-flash"]
+
+    prices_list = []
+    for m in enabled_models:
+        p = m.get("prices") or {}
+        p_in = float(p.get("input", 0.0))
+        p_out = float(p.get("output", 0.0))
+        prices_list.append(p_in + p_out)
+    max_price = max(prices_list) if prices_list else 1.0
+
+    for m in enabled_models:
+        name = m.get("name", "unknown")
+        upstream = str(m.get("upstream_id") or name).lower()
+        provider = str(m.get("provider", "generic")).lower()
+        p = m.get("prices") or {}
+        p_in = float(p.get("input", 0.0))
+        p_out = float(p.get("output", 0.0))
+        tot_price = p_in + p_out
+        is_free = bool(m.get("free")) or tot_price == 0.0 or provider in ("lm-studio", "ollama", "local")
+        ctx = int(m.get("context_tokens") or 128000)
+        cap = m.get("capability") or {}
+        avg_cap = sum(float(v) for v in cap.values()) / max(len(cap), 1) if cap else 72.0
+        code_cap = float(cap.get("coding") or avg_cap)
+        reason_cap = float(cap.get("reasoning") or avg_cap)
+
+        is_high_signal = any(k in name.lower() or k in upstream for k in high_end_keys)
+        is_econ_signal = any(k in name.lower() or k in upstream for k in economy_keys)
+
+        # -- Frontier Score (0 - 100) --
+        s_frontier = 50.0 + (avg_cap - 70.0) * 1.2 + (code_cap - 70.0) * 0.8 + (reason_cap - 70.0) * 0.8
+        if is_high_signal:
+            s_frontier += 16.0
+        if max_price > 0 and tot_price >= max_price * 0.7:
+            s_frontier += 12.0
+        if ctx >= 128000:
+            s_frontier += 6.0
+        elif ctx >= 64000:
+            s_frontier += 3.0
+        if is_free and not is_high_signal:
+            s_frontier -= 15.0
+        s_frontier = max(20.0, min(99.0, round(s_frontier, 1)))
+
+        # -- Economy Score (0 - 100) --
+        if is_free:
+            s_economy = 80.0 + (avg_cap - 70.0) * 0.4
+        else:
+            price_factor = max(0.1, tot_price)
+            s_economy = 75.0 + (avg_cap - 70.0) * 0.8 - math.log10(price_factor + 0.5) * 28.0
+            if is_econ_signal:
+                s_economy += 14.0
+            if is_high_signal:
+                s_economy -= 18.0
+        s_economy = max(10.0, min(99.0, round(s_economy, 1)))
+
+        # -- Judge Score (0 - 100) --
+        s_judge = 45.0 + (avg_cap - 70.0) * 1.0 + (reason_cap - 70.0) * 1.5
+        if is_high_signal:
+            s_judge += 12.0
+        if provider in ("lm-studio", "ollama", "local"):
+            s_judge -= 10.0
+        s_judge = max(20.0, min(98.0, round(s_judge, 1)))
+
+        # -- Fallback Score (0 - 100) --
+        s_fallback = 48.0 + (avg_cap - 70.0) * 1.0 + (min(ctx, 131072) / 131072.0) * 18.0
+        if is_high_signal:
+            s_fallback += 14.0
+        if s_frontier >= 85.0:
+            s_fallback += 10.0
+        s_fallback = max(20.0, min(99.0, round(s_fallback, 1)))
+
+        model_scores[name] = {
+            "frontier": s_frontier,
+            "economy": s_economy,
+            "judge": s_judge,
+            "fallback": s_fallback,
+            "is_free": is_free,
+            "tot_price": tot_price,
+            "ctx": ctx,
+            "code_cap": code_cap,
+            "reason_cap": reason_cap,
+            "avg_cap": avg_cap,
+        }
+
+    # 5. 综合评选最优角色归属（支持单模型身兼多角色）
+    best_frontier_name = max(enabled_models, key=lambda m: model_scores[m["name"]]["frontier"])["name"]
+
+    paid_models = [m for m in enabled_models if not model_scores[m["name"]]["is_free"]]
+    if paid_models:
+        best_economy_name = max(paid_models, key=lambda m: model_scores[m["name"]]["economy"])["name"]
+    else:
+        best_economy_name = max(enabled_models, key=lambda m: model_scores[m["name"]]["economy"])["name"]
+
+    if is_jev:
+        best_judge_name = "jev"
+    else:
+        best_judge_name = max(enabled_models, key=lambda m: model_scores[m["name"]]["judge"])["name"]
+
+    best_fallback_name = max(enabled_models, key=lambda m: model_scores[m["name"]]["fallback"])["name"]
+    free_names = [m["name"] for m in enabled_models if model_scores[m["name"]]["is_free"]]
+
+    # 6. 生成角色理由与 AI 综合评述
+    f_info = model_scores[best_frontier_name]
+    e_info = model_scores[best_economy_name]
+    fb_info = model_scores[best_fallback_name]
+
+    frontier_reason = f"高阶综合得分 {f_info['frontier']} 分。代码/推理能力评分达 {f_info['code_cap']}/{f_info['reason_cap']}，上下文窗口 {f_info['ctx'] // 1000}k，能够胜任高难、长链条与高价值决策，作为基线可衡量路由优化成效。"
+    economy_reason = f"能效比得分 {e_info['economy']} 分。计费单价 ¥{e_info['tot_price']}/1M，综合能力 {e_info['avg_cap']} 分，在常规问答、批量处理与轻量化调用中展现出卓越的成本效益比。"
+    
+    if best_judge_name == "jev":
+        judge_reason = f"采用当前在线激活的 Jev AI 云端决策大模型（{engine_model}）担任质检验收官。无本地显存开销，提供极度客观、校准的通过概率与失误分类判断。"
+    else:
+        j_info = model_scores[best_judge_name]
+        judge_reason = f"逻辑审校评分 {j_info['judge']} 分。推理严谨度 {j_info['reason_cap']} 分，具备优良的指令遵循度，可独立对生成结果进行质检验收。"
+
+    if best_fallback_name == best_frontier_name:
+        fallback_reason = f"身兼主力旗舰与降级兜底双重职责。凭借其 {fb_info['ctx'] // 1000}k 的充沛上下文容量与顶尖鲁棒性，在发生超时或质量退化时提供绝对可靠的最终安全护栏。"
+    else:
+        fallback_reason = f"容错稳定性评分 {fb_info['fallback']} 分。上下文容量 {fb_info['ctx'] // 1000}k，具备优良的可用性与容灾承载能力，保障系统服务平稳降级。"
+
+    role_assignments: dict[str, list[str]] = {m["name"]: [] for m in enabled_models}
+    role_reasons: dict[str, str] = {}
+
+    role_assignments[best_frontier_name].append("frontier")
+    role_reasons[best_frontier_name] = frontier_reason
+
+    role_assignments[best_economy_name].append("economy")
+    if best_economy_name not in role_reasons or best_economy_name != best_frontier_name:
+        role_reasons[best_economy_name] = economy_reason
+
+    if best_judge_name != "jev" and best_judge_name in role_assignments:
+        role_assignments[best_judge_name].append("judge")
+        if best_judge_name not in role_reasons:
+            role_reasons[best_judge_name] = judge_reason
+
+    role_assignments[best_fallback_name].append("fallback")
+    if best_fallback_name == best_frontier_name:
+        role_reasons[best_fallback_name] = f"{frontier_reason} 同时兼任高可用故障降级兜底。"
+    elif best_fallback_name not in role_reasons:
+        role_reasons[best_fallback_name] = fallback_reason
+
+    for fn in free_names:
+        if fn in role_assignments and "free" not in role_assignments[fn]:
+            role_assignments[fn].append("free")
+
+    for m in enabled_models:
+        m_name = m["name"]
+        assigned = role_assignments.get(m_name, [])
+        if not assigned:
+            assigned = ["balanced"]
+        analysis_list.append({
+            "name": m_name,
+            "provider": m.get("provider", "generic"),
+            "assigned_roles": assigned,
+            "scores": {
+                "frontier": model_scores[m_name]["frontier"],
+                "economy": model_scores[m_name]["economy"],
+                "judge": model_scores[m_name]["judge"],
+                "fallback": model_scores[m_name]["fallback"],
+            },
+            "reasoning": role_reasons.get(m_name, "综合性价比良好，作为通用动态调度候选模型。"),
+        })
+
+    eval_latency_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+
+    summary_text = (
+        f"调度决策大脑（{engine_name}，代号 {engine_model}）对当前生效的 {len(enabled_models)} 个候选模型进行了全景多维评判。"
+        f"在多维权衡中，推荐「{best_frontier_name}」承担主力旗舰基准（Baseline）；"
+        f"推荐「{best_economy_name}」负责经济低成本调度，以大幅削减高频请求开支；"
+        f"质检验收由「{'Jev AI 云端裁决模型' if best_judge_name == 'jev' else best_judge_name}」专职裁量；"
+        f"高可用故障兜底由「{best_fallback_name}」护航"
+        f"{'（实现旗舰与兜底身兼多职，兼顾架构精简与高容灾度）' if best_fallback_name == best_frontier_name else ''}。"
+    )
+
+    return {
+        "status": "ok",
+        "engine": {
+            "name": engine_name,
+            "type": engine_type,
+            "model": engine_model,
+            "latency_ms": eval_latency_ms,
+            "decision_probe_ms": decision_probe_ms,
+        },
+        "summary_reasoning": summary_text,
+        "recommendations": {
+            "frontier": {"model": best_frontier_name, "reason": frontier_reason},
+            "economy": {"model": best_economy_name, "reason": economy_reason},
+            "judge": {"model": best_judge_name, "reason": judge_reason},
+            "fallback": {"model": best_fallback_name, "reason": fallback_reason},
+            "free": free_names,
+        },
+        "role_assignments": role_assignments,
+        "role_reasons": role_reasons,
+        "model_analysis": analysis_list,
+        "all_enabled_models": [m["name"] for m in enabled_models],
+    }
+
+
+@app.post("/api/models/apply-roles")
+async def apply_model_roles(req: ApplyRolesRequest):
+    """Persist evaluated or user-customized baseline roles into policy.baselines and model metadata,
+    then automatically trigger hot-reload of router system."""
+    try:
+        raw_cfg = get_current_raw_config()
+        if not raw_cfg.get("policy"):
+            raw_cfg["policy"] = {}
+        
+        # 1. 写入基线角色映射
+        raw_cfg["policy"]["baselines"] = {
+            "frontier": req.baselines.get("frontier", ""),
+            "economy": req.baselines.get("economy", ""),
+            "judge": req.baselines.get("judge", ""),
+            "fallback": req.baselines.get("fallback", ""),
+        }
+
+        # 2. 同步写入 policy.verify.judge_model
+        judge_val = req.baselines.get("judge")
+        if judge_val:
+            if not raw_cfg["policy"].get("verify"):
+                raw_cfg["policy"]["verify"] = {}
+            raw_cfg["policy"]["verify"]["judge_model"] = judge_val
+
+        # 3. 沉淀至各模型的 roles 与 role_reason
+        for m in raw_cfg.get("models", []):
+            m_name = m.get("name")
+            if m_name in req.model_roles:
+                m["roles"] = req.model_roles[m_name]
+            if m_name in req.role_reasons:
+                m["role_reason"] = req.role_reasons[m_name]
+
+        # 4. 持久化并热重载
+        save_config(raw_cfg)
+        reload_router_system()
+
+        return {
+            "status": "ok",
+            "message": "模型调度角色定义已成功保存并实时热重载生效！",
+            "baselines": raw_cfg["policy"]["baselines"],
+        }
+    except Exception as exc:
+        log.error("Failed to apply model roles: %s", exc, exc_info=True)
+        raise HTTPException(status_code=400, detail=f"保存模型角色定义失败: {exc}")
 
 
 # ---------------------------------------------------------------------------

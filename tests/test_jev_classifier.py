@@ -480,3 +480,123 @@ def test_dispatch_roles_and_multi_role_badges():
     assert "💻 本地/零成本" in html
 
 
+def test_evaluate_and_apply_model_roles_api(tmp_path, monkeypatch):
+    """Test dynamic role evaluation and applying roles back into configuration."""
+    from fastapi.testclient import TestClient
+    import server
+
+    # 创建隔离测试配置
+    test_cfg = {
+        "providers": {
+            "test-prov": {
+                "name": "test-prov",
+                "base_url": "http://127.0.0.1:8000/v1",
+                "api_key": "sk-dummy-1234",
+            }
+        },
+        "models": [
+            {
+                "name": "model-frontier-pro",
+                "provider": "test-prov",
+                "upstream_id": "deepseek-v4-pro",
+                "prices": {"input": 10.0, "output": 30.0},
+                "capability": {"coding": 88, "reasoning": 90, "agentic": 85},
+                "context_tokens": 128000,
+                "enabled": True,
+            },
+            {
+                "name": "model-economy-flash",
+                "provider": "test-prov",
+                "upstream_id": "deepseek-v4-flash",
+                "prices": {"input": 1.0, "output": 2.0},
+                "capability": {"coding": 75, "reasoning": 74, "agentic": 72},
+                "context_tokens": 64000,
+                "enabled": True,
+            },
+            {
+                "name": "model-local-gemma",
+                "provider": "test-prov",
+                "upstream_id": "gemma-2-9b",
+                "free": True,
+                "prices": {"input": 0.0, "output": 0.0},
+                "capability": {"coding": 68, "reasoning": 65},
+                "context_tokens": 32000,
+                "enabled": True,
+            },
+        ],
+        "policy": {
+            "name": "F_expected",
+            "classifier": {
+                "backend": "jev",
+                "jev": {
+                    "base_url": "https://jev-ai.pro/api/v1/",
+                    "model": "jev-latest",
+                    "api_key": "sk-dummy-key",
+                }
+            },
+            "verify": {
+                "enabled": True,
+                "judge_model": "jev",
+            }
+        }
+    }
+
+    cfg_file = tmp_path / "router_config.test.json"
+    import json
+    cfg_file.write_text(json.dumps(test_cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    monkeypatch.setenv("AUTO_ROUTER_CONFIG", str(cfg_file))
+
+    client = TestClient(server.app)
+
+    # 1. 测试评估接口
+    res = client.post("/api/models/evaluate-roles", json={})
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["status"] == "ok"
+    assert "Jev AI 云端决策大模型" in data["engine"]["name"]
+    assert "summary_reasoning" in data
+    assert data["recommendations"]["frontier"]["model"] == "model-frontier-pro"
+    assert data["recommendations"]["economy"]["model"] == "model-economy-flash"
+    assert data["recommendations"]["judge"]["model"] == "jev"
+    # 验证单模型身兼两职：model-frontier-pro 同时身兼 fallback
+    assert data["recommendations"]["fallback"]["model"] == "model-frontier-pro"
+    assert "model-local-gemma" in data["recommendations"]["free"]
+
+    # 2. 测试采纳应用接口
+    apply_payload = {
+        "baselines": {
+            "frontier": "model-frontier-pro",
+            "economy": "model-economy-flash",
+            "judge": "jev",
+            "fallback": "model-frontier-pro",
+        },
+        "model_roles": {
+            "model-frontier-pro": ["frontier", "fallback"],
+            "model-economy-flash": ["economy"],
+            "model-local-gemma": ["free"],
+        },
+        "role_reasons": {
+            "model-frontier-pro": "主力旗舰与兜底防护",
+            "model-economy-flash": "极高能效比经济型",
+        }
+    }
+    apply_res = client.post("/api/models/apply-roles", json=apply_payload)
+    assert apply_res.status_code == 200, apply_res.text
+    apply_data = apply_res.json()
+    assert apply_data["status"] == "ok"
+    assert apply_data["baselines"]["frontier"] == "model-frontier-pro"
+
+    # 3. 验证配置持久化与 evaluator 优先读取
+    saved_cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
+    assert saved_cfg["policy"]["baselines"]["frontier"] == "model-frontier-pro"
+    assert saved_cfg["policy"]["baselines"]["economy"] == "model-economy-flash"
+    assert saved_cfg["policy"]["baselines"]["fallback"] == "model-frontier-pro"
+    assert saved_cfg["policy"]["verify"]["judge_model"] == "jev"
+
+    m_f = next(m for m in saved_cfg["models"] if m["name"] == "model-frontier-pro")
+    assert "frontier" in m_f["roles"]
+    assert "fallback" in m_f["roles"]
+    assert m_f["role_reason"] == "主力旗舰与兜底防护"
+
+
+
