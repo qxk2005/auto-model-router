@@ -369,6 +369,68 @@ function renderModels() {
   tbody.innerHTML = "";
   populateJudgeModelSelect();
 
+  const allModels = currentConfig.models || [];
+  const enabledModels = allModels.filter(m => m.enabled !== false);
+
+  let expModel = null;
+  let chpModel = null;
+  let highestPrice = -1;
+  let lowestPaidPrice = Infinity;
+  let lowestOverallPrice = Infinity;
+
+  enabledModels.forEach(m => {
+    const p = m.prices || { input: 0, output: 0 };
+    const tot = (p.input || 0) + (p.output || 0);
+    const isFree = m.free || (tot === 0);
+
+    if (tot > highestPrice) {
+      highestPrice = tot;
+      expModel = m;
+    }
+    if (tot < lowestOverallPrice) {
+      lowestOverallPrice = tot;
+    }
+    if (!isFree && tot < lowestPaidPrice) {
+      lowestPaidPrice = tot;
+      chpModel = m;
+    }
+  });
+
+  if (!chpModel && enabledModels.length > 0) {
+    chpModel = enabledModels.find(m => ((m.prices?.input || 0) + (m.prices?.output || 0)) === lowestOverallPrice) || enabledModels[0];
+  }
+
+  const verifyCfg = currentConfig.policy?.verify || {};
+  const isVerifyEnabled = verifyCfg.enabled !== false;
+  const judgeModelName = verifyCfg.judge_model || "";
+  const fallbackModel = expModel || chpModel;
+
+  const rolesBanner = document.getElementById("dispatchRolesBanner");
+  if (rolesBanner) {
+    let judgeText = "未启用";
+    if (isVerifyEnabled) {
+      judgeText = judgeModelName.toLowerCase() === "jev" ? "Jev (云端裁决模型)" : (judgeModelName || "未指定");
+    }
+    const freeModels = enabledModels.filter(m => m.free || (((m.prices?.input || 0) === 0 && (m.prices?.output || 0) === 0)) || ["lm-studio", "ollama", "local"].includes(m.provider));
+    const freeText = freeModels.length > 0 ? freeModels.map(m => m.name).join(", ") : "无";
+
+    rolesBanner.innerHTML = `
+      <div class="dispatch-roles-banner">
+        <div class="roles-banner-title">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+          <span>当前生效调度基线与系统角色映射 (Active Dispatch Roles)</span>
+        </div>
+        <div class="roles-banner-items">
+          <div class="role-banner-item"><span class="r-label">🎯 主力旗舰基准 (Baseline):</span> <span class="r-val r-exp">${expModel ? expModel.name : "未配置"}</span></div>
+          <div class="role-banner-item"><span class="r-label">⚡ 经济低成本基准:</span> <span class="r-val r-chp">${chpModel ? chpModel.name : "未配置"}</span></div>
+          <div class="role-banner-item"><span class="r-label">⚖️ 质检验收裁决官:</span> <span class="r-val r-judge">${judgeText}</span></div>
+          <div class="role-banner-item"><span class="r-label">🛡️ 故障降级兜底:</span> <span class="r-val r-fallback">${fallbackModel ? fallbackModel.name : "未配置"}</span></div>
+          <div class="role-banner-item"><span class="r-label">💻 本地/零成本:</span> <span class="r-val r-free">${freeText}</span></div>
+        </div>
+      </div>
+    `;
+  }
+
   currentConfig.models.forEach((m, idx) => {
     const tr = document.createElement("tr");
     const isEnabled = m.enabled !== false;
@@ -401,12 +463,36 @@ function renderModels() {
       </div>
     `;
 
+    const roleBadges = [];
+    if (isEnabled) {
+      if (expModel && m.name === expModel.name) {
+        roleBadges.push('<span class="badge badge-role-frontier" title="综合单价最高的主力旗舰模型，负责高难/高风险请求并作为全量对比 100% 基线">🎯 主力旗舰基准 (Baseline)</span>');
+      }
+      if (chpModel && m.name === chpModel.name) {
+        roleBadges.push('<span class="badge badge-role-economy" title="低成本经济基准模型，负责日常低难度高性价比响应">⚡ 经济低成本基准</span>');
+      }
+      if (m.free || (((p.input || 0) === 0 && (p.output || 0) === 0)) || ["lm-studio", "ollama", "local"].includes(m.provider)) {
+        roleBadges.push('<span class="badge badge-role-free" title="本地端点或免 Token 计费的零边际成本模型">💻 本地/零成本</span>');
+      }
+      if (isVerifyEnabled && (m.name === judgeModelName || (judgeModelName.toLowerCase() === "jev" && m.name === expModel?.name))) {
+        if (m.name === judgeModelName) {
+          roleBadges.push('<span class="badge badge-role-judge" title="质量验收阶段担任判别与抽检裁决的模型">⚖️ 质检验收裁决官</span>');
+        }
+      }
+      if (fallbackModel && m.name === fallbackModel.name) {
+        roleBadges.push('<span class="badge badge-role-fallback" title="当下级模型失败、超时或验收不满意时升级/转移的目标模型">🛡️ 故障降级兜底</span>');
+      }
+      if (roleBadges.length === 0) {
+        roleBadges.push('<span class="badge badge-role-balanced" title="位于旗舰与经济层级之间的多策略常规候选模型">⚖️ 常规路由候选</span>');
+      }
+    }
+
     tr.innerHTML = `
       <td>
         <div style="font-weight:700; color:var(--primary); font-family:var(--font-mono); font-size:13.5px; line-height:1.2;">${m.name}</div>
         <div style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono); margin-top:3px;">上游: ${m.upstream_id || m.name}</div>
-        <div style="margin-top:3px; display:flex; gap:4px; align-items:center;">
-          ${m.free ? '<span class="badge badge-green" style="font-size:10px; padding:1px 6px;">✓ 免费(0成本)</span>' : ''}
+        <div style="margin-top:5px; display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
+          ${roleBadges.join("")}
           ${!isEnabled ? '<span class="badge-disabled-model">⚪ 已停用</span>' : ''}
         </div>
       </td>
@@ -1601,8 +1687,9 @@ async function startBenchmark() {
       document.getElementById("latestSummaryMeta").textContent = `完成时间: ${s.timestamp} | 模式: ${data.mode} | 测试集: ${s.total_cases} 条用例`;
       document.getElementById("resSavingsPct").textContent = `${s.total_savings_pct}%`;
       document.getElementById("resSavingsUsd").textContent = `节省金额: ${sym}${s.total_savings_usd.toFixed(4)}`;
-      document.getElementById("resRouterCost").textContent = `${sym}${s.cost_router_total.toFixed(4)}`;
-      document.getElementById("resExpensiveCost").textContent = `全量昂贵对比: ${sym}${s.cost_expensive_total.toFixed(4)}`;
+      const expModelName = s.expensive_model_name || (s.config_snapshot && s.config_snapshot.dispatch_roles && s.config_snapshot.dispatch_roles.frontier) || "";
+      const expCostLabel = expModelName ? `全量对比 (${expModelName})` : "全量昂贵对比";
+      document.getElementById("resExpensiveCost").textContent = `${expCostLabel}: ${sym}${s.cost_expensive_total.toFixed(4)}`;
       document.getElementById("resLayaAvgLat").textContent = `${s.avg_classifier_latency_ms} ms`;
       document.getElementById("resAccuracy").textContent = `${s.alignment_rate}%`;
       document.getElementById("resTotalCases").textContent = `测试用例: ${s.total_cases} 条`;

@@ -2239,4 +2239,101 @@ tr.model-row-disabled:hover {
   animation: sectionCardGlow 1.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* 调度基线与系统角色映射透视栏 */
+.dispatch-roles-banner {
+  background: rgba(2, 132, 199, 0.03);
+  border: 1px dashed rgba(2, 132, 199, 0.28);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.roles-banner-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.roles-banner-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  font-size: 12px;
+}
+.role-banner-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.role-banner-item .r-label {
+  color: var(--text-muted);
+}
+.role-banner-item .r-val {
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+.role-banner-item .r-exp { color: #dc2626; }
+.role-banner-item .r-chp { color: #059669; }
+.role-banner-item .r-judge { color: #7c3aed; }
+.role-banner-item .r-fallback { color: #d97706; }
+.role-banner-item .r-free { color: #0284c7; }
+
+/* 角色标签颜色体系 */
+.badge-role-frontier {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid rgba(185, 28, 28, 0.25);
+  font-weight: 600;
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.badge-role-economy {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid rgba(4, 120, 87, 0.25);
+  font-weight: 600;
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.badge-role-judge {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border: 1px solid rgba(109, 40, 217, 0.25);
+  font-weight: 600;
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.badge-role-fallback {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid rgba(180, 83, 9, 0.25);
+  font-weight: 600;
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.badge-role-free {
+  background: #f0f9ff;
+  color: #0369a1;
+  border: 1px solid rgba(3, 105, 161, 0.25);
+  font-weight: 600;
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.badge-role-balanced {
+  background: #f8fafc;
+  color: #475569;
+  border: 1px solid rgba(71, 85, 105, 0.2);
+  font-weight: 500;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
 

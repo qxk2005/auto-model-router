@@ -331,6 +331,8 @@ def test_evaluator_and_reporter_adaptive_to_jev():
             )
         ],
         verify_stats={"enabled": True, "judge_model": "jev", "passed": 1, "pass_rate_pct": 100.0, "escalated": 0, "exempt": 0, "avg_latency_ms": 35.0},
+        expensive_model_name="gemini-3-8-flash-high",
+        cheap_model_name="deepseek-v4-flash",
         config_snapshot=snapshot,
     )
 
@@ -346,8 +348,135 @@ def test_evaluator_and_reporter_adaptive_to_jev():
     assert "Cloud API" in html
     assert "Jev (云端裁决模型)" in html
     assert "TypeSafe REST API (免本地显存与硬件算力占用)" in html
+    assert "全量使用主力旗舰模型 (Baseline: gemini-3-8-flash-high)" in html
+    assert "全量使用经济/低成本模型 (deepseek-v4-flash)" in html
+    assert "当前系统调度角色与基线映射" in html
+    assert "系统调度角色" in html
 
     # 验证不应该再含有旧的 Laya 硬件写死标题
     assert "⚡ Laya 分类器与硬件加速配置" not in html
     assert "Laya 智能分级路由 (Auto-Router)" not in html
+
+
+def test_dispatch_roles_and_multi_role_badges():
+    from auto_router.catalog import Catalog, ModelInfo, Prices
+    from evaluator import BenchmarkEvaluator, BenchmarkSummary, CaseResult
+    from reporter import ReportGenerator
+
+    models = [
+        ModelInfo(
+            name="gemini-3-8-flash-high",
+            provider="antigravity",
+            upstream_id="gemini-3-8-flash-high",
+            prices=Prices(input=35.0, output=105.0),
+        ),
+        ModelInfo(
+            name="deepseek-v4-flash",
+            provider="deepseek",
+            upstream_id="deepseek-v4-flash",
+            prices=Prices(input=1.0, output=2.0),
+        ),
+        ModelInfo(
+            name="gemma-4-e4b-it",
+            provider="lm-studio",
+            upstream_id="gemma-4-e4b-it",
+            prices=Prices(input=0.0, output=0.0),
+        ),
+    ]
+    catalog = Catalog(models=models)
+
+    cfg = {
+        "policy": {
+            "name": "F_expected",
+            "classifier": {
+                "backend": "jev",
+                "jev": {
+                    "base_url": "https://jev-ai.pro/api/v1/",
+                    "model": "jev-latest",
+                    "api_key": "sk_test_12345678",
+                }
+            },
+            "verify": {
+                "enabled": True,
+                "judge_model": "gemini-3-8-flash-high",
+            }
+        }
+    }
+
+    evaluator = BenchmarkEvaluator(None, catalog, None, config_raw=cfg)
+    snapshot = evaluator._build_config_snapshot()
+
+    assert snapshot["expensive_model_name"] == "gemini-3-8-flash-high"
+    assert snapshot["cheap_model_name"] == "gemma-4-e4b-it"
+
+    # gemini 身兼多职：既是主力旗舰基准，又是质检验收官，还是降级兜底
+    gemini_entry = next(m for m in snapshot["active_models"] if m["name"] == "gemini-3-8-flash-high")
+    gemini_role_keys = [r["key"] for r in gemini_entry["roles"]]
+    assert "frontier" in gemini_role_keys
+    assert "judge" in gemini_role_keys
+    assert "fallback" in gemini_role_keys
+
+    # gemma 具有本地/零成本及经济基准
+    gemma_entry = next(m for m in snapshot["active_models"] if m["name"] == "gemma-4-e4b-it")
+    gemma_role_keys = [r["key"] for r in gemma_entry["roles"]]
+    assert "free" in gemma_role_keys
+    assert "economy" in gemma_role_keys
+
+    # 渲染 HTML 报告并验证多角色徽章与透视条
+    summary = BenchmarkSummary(
+        timestamp="2026-09-29 10:15:00",
+        mode="simulation",
+        total_cases=1,
+        successful_cases=1,
+        total_tokens=100,
+        cost_router_total=0.001,
+        cost_expensive_total=0.05,
+        cost_cheap_total=0.0,
+        total_savings_usd=0.049,
+        total_savings_pct=98.0,
+        avg_classifier_latency_ms=30.0,
+        avg_total_latency_s=0.3,
+        alignment_rate=100.0,
+        category_breakdown={},
+        model_distribution={"gemma-4-e4b-it": 1},
+        results=[
+            CaseResult(
+                case_id="case_1",
+                category="general",
+                difficulty_tag="easy",
+                prompt="hello",
+                expected_tier="cheap",
+                detected_category="general",
+                detected_difficulty=0.2,
+                detected_stakes=0.1,
+                classifier_latency_ms=30.0,
+                chosen_model="gemma-4-e4b-it",
+                chosen_provider="lm-studio",
+                decision_reason="policy",
+                prompt_tokens=50,
+                output_tokens=50,
+                total_tokens=100,
+                cost_router=0.0,
+                cost_expensive=0.05,
+                cost_cheap=0.0,
+                savings_usd=0.05,
+                savings_pct=100.0,
+                is_aligned=True,
+            )
+        ],
+        expensive_model_name=snapshot["expensive_model_name"],
+        cheap_model_name=snapshot["cheap_model_name"],
+        dispatch_roles=snapshot["dispatch_roles"],
+        config_snapshot=snapshot,
+    )
+
+    html = ReportGenerator().render_html(summary)
+    assert "全量使用主力旗舰模型 (Baseline: gemini-3-8-flash-high)" in html
+    assert "全量使用经济/低成本模型 (gemma-4-e4b-it)" in html
+    assert "当前系统调度角色与基线映射" in html
+    assert "🎯 主力旗舰基准 (Baseline)" in html
+    assert "⚖️ 质检验收裁决官" in html
+    assert "🛡️ 故障降级兜底" in html
+    assert "💻 本地/零成本" in html
+
 
