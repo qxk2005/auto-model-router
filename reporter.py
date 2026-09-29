@@ -88,6 +88,14 @@ class ReportGenerator:
         jev_params = snapshot.get("jev_params", {})
         active_models = snapshot.get("active_models", [])
 
+        # Extract Baseline Models & Dispatch Roles
+        exp_model_name = getattr(summary, "expensive_model_name", "") or snapshot.get("expensive_model_name") or snapshot.get("dispatch_roles", {}).get("frontier", "")
+        chp_model_name = getattr(summary, "cheap_model_name", "") or snapshot.get("cheap_model_name") or snapshot.get("dispatch_roles", {}).get("economy", "")
+        dispatch_roles = getattr(summary, "dispatch_roles", {}) or snapshot.get("dispatch_roles", {}) or {}
+
+        exp_label = f"全量使用主力旗舰模型 (Baseline: {exp_model_name})" if exp_model_name else "全量使用主力旗舰模型 (Baseline)"
+        chp_label = f"全量使用经济/低成本模型 ({chp_model_name})" if chp_model_name else "全量使用本地/零成本模型"
+
         # 检查是否是 Jev 引擎
         raw_backend = snapshot.get("backend") or laya_params.get("classifier_backend") or ""
         is_jev = snapshot.get("is_jev", False) or (raw_backend in ("jev", "hosted", "remote")) or (bool(jev_params) and raw_backend == "jev")
@@ -199,9 +207,32 @@ class ReportGenerator:
                 else:
                     price_str = f"输入: ¥{p_in_cny} (${p_in_usd:.4f}) / 输出: ¥{p_out_cny} (${p_out_usd:.4f})"
 
+                m_roles = m.get("roles", [])
+                if not m_roles:
+                    m_roles = []
+                    if exp_model_name and m_name == exp_model_name:
+                        m_roles.append({"label": "主力旗舰基准 (Baseline)", "icon": "🎯", "badge_class": "snapshot-badge-red"})
+                    if chp_model_name and m_name == chp_model_name:
+                        m_roles.append({"label": "经济低成本基准", "icon": "⚡", "badge_class": "snapshot-badge-green"})
+                    if is_free or m_prov in ("lm-studio", "ollama", "local"):
+                        m_roles.append({"label": "本地/零成本", "icon": "💻", "badge_class": "snapshot-badge-blue"})
+                    if v_enabled and v_raw_judge and m_name == v_raw_judge:
+                        m_roles.append({"label": "质检验收裁决官", "icon": "⚖️", "badge_class": "snapshot-badge-purple"})
+                    fb = dispatch_roles.get("fallback") or exp_model_name
+                    if fb and m_name == fb:
+                        m_roles.append({"label": "故障降级兜底", "icon": "🛡️", "badge_class": "snapshot-badge-amber"})
+                    if not m_roles:
+                        m_roles.append({"label": "常规路由候选", "icon": "⚖️", "badge_class": "snapshot-badge-gray"})
+
+                roles_html = " ".join([
+                    f'<span class="snapshot-badge {r.get("badge_class", "snapshot-badge-blue")}" style="margin:2px 2px; display:inline-flex; align-items:center; gap:3px; font-size:10.5px;">{r.get("icon", "")} {fix_mojibake(r.get("label", ""))}</span>'
+                    for r in m_roles
+                ])
+
                 models_rows.append(f"""
                 <tr>
-                  <td><strong style="color:var(--primary); font-family:var(--font-mono);">{m_name}</strong></td>
+                  <td><strong style="color:var(--primary); font-family:var(--font-mono); font-size:13px;">{m_name}</strong></td>
+                  <td><div style="display:flex; flex-wrap:wrap; gap:3px;">{roles_html}</div></td>
                   <td><span class="snapshot-badge snapshot-badge-blue">{m_prov}</span></td>
                   <td style="font-family:var(--font-mono); color:var(--text-muted);">{m_up}</td>
                   <td>{ctx_k}k</td>
@@ -210,6 +241,13 @@ class ReportGenerator:
                 """)
 
             models_table_body = "".join(models_rows)
+
+            frontier_disp = exp_model_name or "未指定"
+            economy_disp = chp_model_name or "未指定"
+            judge_disp = dispatch_roles.get("judge") or v_judge_disp
+            fallback_disp = dispatch_roles.get("fallback") or exp_model_name or "未指定"
+            free_models_list = dispatch_roles.get("free", [])
+            free_disp = ", ".join(free_models_list) if free_models_list else "无"
 
             snapshot_html = f"""
     <!-- Runtime Configuration & Environment Snapshot -->
@@ -259,16 +297,28 @@ class ReportGenerator:
         {engine_box_html}
       </div>
 
-      <!-- Box 3: Active Routing Candidates Catalog Matrix -->
+      <!-- Box 3: Active Routing Candidates Catalog Matrix & Dispatch Roles -->
       <div class="snapshot-models-section">
         <div class="snapshot-models-title">
           <span>📋 本次测试参与路由的候选模型目录矩阵 (Active Candidates: {len(active_models)} 个)</span>
+        </div>
+        <div class="snapshot-roles-strip" style="margin-bottom: 14px; padding: 10px 14px; background: rgba(2, 132, 199, 0.04); border: 1px dashed rgba(2, 132, 199, 0.25); border-radius: 8px; display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: center; font-size: 12px;">
+          <span style="font-weight: 700; color: var(--text-main); display: inline-flex; align-items: center; gap: 5px;">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+            当前系统调度角色与基线映射:
+          </span>
+          <span>🎯 主力旗舰基准 (Baseline): <strong style="color: #dc2626; font-family: var(--font-mono);">{frontier_disp}</strong></span>
+          <span>⚡ 经济低成本基准: <strong style="color: #059669; font-family: var(--font-mono);">{economy_disp}</strong></span>
+          <span>⚖️ 质检验收裁决官: <strong style="color: #7c3aed; font-family: var(--font-mono);">{judge_disp}</strong></span>
+          <span>🛡️ 故障降级兜底: <strong style="color: #d97706; font-family: var(--font-mono);">{fallback_disp}</strong></span>
+          <span>💻 本地/零成本: <strong style="color: #0284c7; font-family: var(--font-mono);">{free_disp}</strong></span>
         </div>
         <div style="overflow-x: auto;">
           <table class="snapshot-models-table">
             <thead>
               <tr>
                 <th>模型名称</th>
+                <th>系统调度角色</th>
                 <th>所属提供商</th>
                 <th>上游端点模型 ID</th>
                 <th>上下文上限</th>
@@ -506,6 +556,26 @@ class ReportGenerator:
       background: #ecfdf5;
       color: #047857;
       border: 1px solid #a7f3d0;
+    }}
+    .snapshot-badge-red {{
+      background: #fef2f2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+    }}
+    .snapshot-badge-purple {{
+      background: #f5f3ff;
+      color: #6d28d9;
+      border: 1px solid #ddd6fe;
+    }}
+    .snapshot-badge-amber {{
+      background: #fffbeb;
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }}
+    .snapshot-badge-gray {{
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
     }}
     .snapshot-models-section {{
       background: #ffffff;
@@ -1432,7 +1502,7 @@ class ReportGenerator:
         <div class="bar-group">
           <div class="bar-item">
             <div class="bar-meta">
-              <span class="bar-label" style="color: #dc2626; font-weight: 600;">全量使用主力旗舰模型 (Baseline)</span>
+              <span class="bar-label" style="color: #dc2626; font-weight: 600;">{exp_label}</span>
               <span class="bar-cost">{cur_sym}{exp_cost:.4f} (100%)</span>
             </div>
             <div class="bar-track">
@@ -1452,7 +1522,7 @@ class ReportGenerator:
 
           <div class="bar-item">
             <div class="bar-meta">
-              <span class="bar-label" style="color: #0284c7; font-weight: 600;">全量使用本地/零成本模型</span>
+              <span class="bar-label" style="color: #0284c7; font-weight: 600;">{chp_label}</span>
               <span class="bar-cost">{cur_sym}{chp_cost:.4f} ({chp_bar_pct}%)</span>
             </div>
             <div class="bar-track">

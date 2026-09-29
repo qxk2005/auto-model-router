@@ -96,6 +96,9 @@ class BenchmarkSummary:
     results: list[CaseResult]
     currency_symbol: str = "¥"
     usd_cny_rate: float = 7.20
+    expensive_model_name: str = ""
+    cheap_model_name: str = ""
+    dispatch_roles: dict[str, Any] = field(default_factory=dict)
     config_snapshot: dict[str, Any] = field(default_factory=dict)
     trace_topology_stats: dict[str, Any] = field(default_factory=dict)
     verify_stats: dict[str, Any] = field(default_factory=dict)
@@ -212,7 +215,7 @@ class BenchmarkEvaluator:
         active_models = []
         if self.catalog and hasattr(self.catalog, "models"):
             for m in self.catalog.models:
-                if getattr(m, "launch_only", False):
+                if getattr(m, "launch_only", False) or getattr(m, "enabled", True) is False:
                     continue
                 is_free = getattr(m, "free", False) or (m.prices and getattr(m.prices, "is_free", False))
                 p_in = getattr(m.prices, "input", 0.0) if m.prices else 0.0
@@ -229,6 +232,39 @@ class BenchmarkEvaluator:
                     "output_usd": round(p_out / self.usd_cny_rate, 4) if self.usd_cny_rate > 0 else 0.0,
                 })
 
+        expensive_model, cheap_model = self._get_baseline_models()
+        exp_name = expensive_model.name if expensive_model else ""
+        chp_name = cheap_model.name if cheap_model else ""
+
+        verify_cfg = policy_cfg.get("verify", {}) if isinstance(policy_cfg, dict) else {}
+        judge_name = verify_cfg.get("judge_model", "")
+        fallback_name = exp_name if exp_name else chp_name
+
+        for am in active_models:
+            m_name = am["name"]
+            roles = []
+            if exp_name and m_name == exp_name:
+                roles.append({"key": "frontier", "label": "主力旗舰基准 (Baseline)", "icon": "🎯", "badge_class": "snapshot-badge-red"})
+            if chp_name and m_name == chp_name:
+                roles.append({"key": "economy", "label": "经济低成本基准", "icon": "⚡", "badge_class": "snapshot-badge-green"})
+            if am["is_free"] or am.get("provider") in ("lm-studio", "ollama", "local"):
+                roles.append({"key": "free", "label": "本地/零成本", "icon": "💻", "badge_class": "snapshot-badge-blue"})
+            if judge_name and m_name == judge_name:
+                roles.append({"key": "judge", "label": "质检验收裁决官", "icon": "⚖️", "badge_class": "snapshot-badge-purple"})
+            if fallback_name and m_name == fallback_name:
+                roles.append({"key": "fallback", "label": "故障降级兜底", "icon": "🛡️", "badge_class": "snapshot-badge-amber"})
+            if not roles:
+                roles.append({"key": "balanced", "label": "常规路由候选", "icon": "⚖️", "badge_class": "snapshot-badge-gray"})
+            am["roles"] = roles
+
+        dispatch_roles = {
+            "frontier": exp_name,
+            "economy": chp_name,
+            "judge": ("Jev (云端裁决模型)" if judge_name == "jev" else (judge_name or "未启用")),
+            "fallback": fallback_name,
+            "free": [am["name"] for am in active_models if am.get("is_free") or am.get("provider") in ("lm-studio", "ollama", "local")],
+        }
+
         return {
             "is_jev": is_jev,
             "engine_name": "Jev" if is_jev else "Laya",
@@ -237,11 +273,16 @@ class BenchmarkEvaluator:
             "laya_params": laya_params,
             "jev_params": jev_params,
             "active_models": active_models,
+            "expensive_model_name": exp_name,
+            "cheap_model_name": chp_name,
+            "dispatch_roles": dispatch_roles,
         }
 
     def _get_baseline_models(self) -> tuple[ModelInfo | None, ModelInfo | None]:
         """Find the most expensive (frontier) and cheapest (local/free) models in catalog."""
-        models = [m for m in self.catalog.models if not m.launch_only]
+        if not self.catalog or not hasattr(self.catalog, "models"):
+            return None, None
+        models = [m for m in self.catalog.models if not getattr(m, "launch_only", False) and getattr(m, "enabled", True) is not False]
         if not models:
             return None, None
         expensive = max(models, key=lambda m: (m.prices.input + m.prices.output) if m.prices else 0.0)
@@ -751,6 +792,10 @@ class BenchmarkEvaluator:
             "avg_latency_ms": avg_v_lat,
         }
 
+        snapshot = self._build_config_snapshot()
+        exp_name = snapshot.get("expensive_model_name", "")
+        chp_name = snapshot.get("cheap_model_name", "")
+
         return BenchmarkSummary(
             timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
             mode="simulation",
@@ -769,7 +814,10 @@ class BenchmarkEvaluator:
             category_breakdown=cat_stats,
             currency_symbol=self.currency_symbol,
             usd_cny_rate=self.usd_cny_rate,
-            config_snapshot=self._build_config_snapshot(),
+            expensive_model_name=exp_name,
+            cheap_model_name=chp_name,
+            dispatch_roles=snapshot.get("dispatch_roles", {}),
+            config_snapshot=snapshot,
             trace_topology_stats=trace_topology_stats,
             verify_stats=verify_stats,
             results=results,
@@ -1279,6 +1327,10 @@ class BenchmarkEvaluator:
             "avg_latency_ms": avg_v_lat,
         }
 
+        snapshot = self._build_config_snapshot()
+        exp_name = snapshot.get("expensive_model_name", "")
+        chp_name = snapshot.get("cheap_model_name", "")
+
         return BenchmarkSummary(
             timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
             mode="real_benchmark",
@@ -1297,7 +1349,10 @@ class BenchmarkEvaluator:
             category_breakdown=cat_stats,
             currency_symbol=self.currency_symbol,
             usd_cny_rate=self.usd_cny_rate,
-            config_snapshot=self._build_config_snapshot(),
+            expensive_model_name=exp_name,
+            cheap_model_name=chp_name,
+            dispatch_roles=snapshot.get("dispatch_roles", {}),
+            config_snapshot=snapshot,
             trace_topology_stats=trace_topology_stats,
             verify_stats=verify_stats,
             results=list(results),
