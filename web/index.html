@@ -1207,77 +1207,82 @@
 
   <!-- Modal: AI 决策模型智能评判角色映射 -->
   <div class="modal-backdrop" id="modalEvaluateRoles" style="display: none;">
-    <div class="modal modal-lg" style="max-width: 920px;">
-      <div class="modal-header">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="font-size: 24px;">🤖</span>
+    <div class="modal modal-lg" style="max-width: 860px; max-height: 88vh; display: flex; flex-direction: column;">
+      <div class="modal-header" style="padding: 12px 18px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 20px;">🤖</span>
           <div>
-            <h3 style="margin: 0; font-size: 16px; font-weight: 700;">AI 决策模型全景评判与角色调度映射</h3>
-            <p style="margin: 0; font-size: 12px; color: var(--text-muted);">
-              由当前生效的调度决策模型对可用模型池进行全景多维评判，自动分配主力旗舰、经济低成本、质检裁决与故障兜底角色
+            <h3 style="margin: 0; font-size: 15px; font-weight: 700;">AI 决策模型全景评判与角色调度映射</h3>
+            <p style="margin: 0; font-size: 11.5px; color: var(--text-muted);">
+              由当前生效的调度决策模型对可用模型池进行全景多维评判，自动分配主力旗舰、经济、质检与兜底角色
             </p>
           </div>
         </div>
         <button class="modal-close" onclick="closeModal('modalEvaluateRoles')">&times;</button>
       </div>
 
-      <div class="modal-body" id="modalEvaluateRolesBody">
+      <!-- Tab 切换按钮 -->
+      <div class="modal-tabs" style="padding: 0 18px; margin-top: 4px; border-bottom: 1px solid var(--card-border);">
+        <button type="button" class="modal-tab-btn active" id="btnTabEvalRoles" onclick="switchEvalRolesTab('roles')">
+          🎯 核心角色映射与建议
+        </button>
+        <button type="button" class="modal-tab-btn" id="btnTabEvalScores" onclick="switchEvalRolesTab('scores')">
+          📊 模型多维打分详情
+        </button>
+      </div>
+
+      <div class="modal-body" id="modalEvaluateRolesBody" style="padding: 14px 18px; overflow-y: auto; flex: 1;">
         <!-- 思考与加载态 -->
-        <div id="evalRolesLoading" style="text-align: center; padding: 48px 20px;">
-          <div class="spinner" style="width: 40px; height: 40px; border-width: 3px; margin: 0 auto 16px;"></div>
-          <div style="font-size: 15px; font-weight: 600; color: #0284c7;" id="evalRolesLoadingStatus">
+        <div id="evalRolesLoading" style="text-align: center; padding: 40px 20px;">
+          <div class="spinner" style="width: 36px; height: 36px; border-width: 3px; margin: 0 auto 14px;"></div>
+          <div style="font-size: 14.5px; font-weight: 600; color: #0284c7;" id="evalRolesLoadingStatus">
             正在连接调度决策大脑执行全景多维评判...
           </div>
-          <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">
+          <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">
             综合分析计费单价、上下文容量、推理/代码能力画像及模型代际
           </div>
         </div>
 
         <!-- 评估结果容器 (初始隐藏) -->
         <div id="evalRolesContent" style="display: none;">
-          <!-- 决策大脑元信息横幅 -->
-          <div class="eval-engine-card" id="evalEngineCard"></div>
+          <!-- TAB 1: 核心角色映射与建议 -->
+          <div id="paneEvalRoles">
+            <!-- 决策大脑元信息横幅 (超薄紧凑) -->
+            <div class="eval-engine-card" id="evalEngineCard" style="margin-bottom: 10px; padding: 8px 12px;"></div>
 
-          <!-- AI 综合决策评述 -->
-          <div class="eval-summary-card">
-            <div class="eval-summary-header">
-              <span class="eval-sparkle-icon">✨</span>
-              <span style="font-weight: 700; color: #0369a1; font-size: 13.5px;">决策模型全景评述与调度规划建议</span>
-            </div>
-            <div class="eval-summary-text" id="evalSummaryText"></div>
-          </div>
-
-          <!-- 各角色归属配置与判定理由卡片网格 -->
-          <div style="margin-top: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-              <span style="font-size: 13px; font-weight: 700; color: var(--text-main);">🎯 推荐角色映射配置 (支持手动微调，支持单模型身兼多角色)</span>
-              <span style="font-size: 11px; color: #047857; background: #ecfdf5; padding: 3px 9px; border-radius: 4px; border: 1px solid rgba(4,120,87,0.2); font-weight: 600;">
-                ✓ 允许一个模型身兼多个角色
-              </span>
+            <!-- AI 综合决策评述 (紧凑) -->
+            <div class="eval-summary-card" style="margin-bottom: 12px; padding: 10px 14px;">
+              <div class="eval-summary-header" style="margin-bottom: 4px;">
+                <span class="eval-sparkle-icon" style="font-size: 13px;">✨</span>
+                <span style="font-weight: 700; color: #0369a1; font-size: 12.5px;">决策模型全景评述与调度规划建议</span>
+                <span style="margin-left: auto; font-size: 11px; color: #047857; background: #ecfdf5; padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(4,120,87,0.2); font-weight: 600;">
+                  ✓ 支持单模型身兼多角色
+                </span>
+              </div>
+              <div class="eval-summary-text" id="evalSummaryText" style="font-size: 12px; line-height: 1.5;"></div>
             </div>
 
+            <!-- 4 个角色卡片 (紧凑网格) -->
             <div class="eval-roles-grid" id="evalRolesGrid"></div>
           </div>
 
-          <!-- 模型全景分值与角色定位明细表 (折叠/展开) -->
-          <div style="margin-top: 18px;">
-            <details style="background: rgba(2, 132, 199, 0.03); border: 1px dashed rgba(2, 132, 199, 0.25); border-radius: 8px; padding: 10px 14px;">
-              <summary style="cursor: pointer; font-size: 12px; color: var(--primary); font-weight: 600;">
-                📊 点击查看各候选模型的多维适配度分值明细表 (Frontier / Economy / Judge / Fallback)
-              </summary>
-              <div id="evalModelScoresTable" style="margin-top: 10px;"></div>
-            </details>
+          <!-- TAB 2: 模型全景分值明细表 -->
+          <div id="paneEvalScores" style="display: none;">
+            <div style="margin-bottom: 8px; font-size: 12px; color: var(--text-muted);">
+              各候选模型在不同角色维度上的适配度量化得分（0 - 100 分制），得分越高代表在该维度的推荐度越强。
+            </div>
+            <div id="evalModelScoresTable"></div>
           </div>
         </div>
       </div>
 
-      <div class="modal-footer" id="evalRolesFooter" style="display: none; justify-content: space-between;">
-        <button class="btn btn-secondary" onclick="triggerEvaluateRoles()">
+      <div class="modal-footer" id="evalRolesFooter" style="display: none; justify-content: space-between; padding: 10px 18px;">
+        <button class="btn btn-secondary btn-sm" id="btnReEvaluateRolesInModal" onclick="triggerEvaluateRoles(true)">
           <span>🔄 重新评判</span>
         </button>
-        <div style="display: flex; gap: 10px;">
-          <button class="btn btn-secondary" onclick="closeModal('modalEvaluateRoles')">取消</button>
-          <button class="btn btn-primary" id="btnApplyEvaluatedRoles" onclick="applyEvaluatedRoles()">
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary btn-sm" onclick="closeModal('modalEvaluateRoles')">取消</button>
+          <button class="btn btn-primary btn-sm" id="btnApplyEvaluatedRoles" onclick="applyEvaluatedRoles()">
             <span>✓ 一键采纳并保存生效</span>
           </button>
         </div>
@@ -1285,6 +1290,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=20260929_eval_roles_v3"></script>
+  <script src="/web/app.js?v=20260929_eval_roles_v4"></script>
 </body>
 </html>

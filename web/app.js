@@ -4002,9 +4002,29 @@ async function applyAllLeaderboardRatings() {
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // 决策模型智能评判角色映射交互逻辑
 // ---------------------------------------------------------------------------
 let lastEvaluatedRolesData = null;
+
+function switchEvalRolesTab(tabKey) {
+  const btnRoles = document.getElementById("btnTabEvalRoles");
+  const btnScores = document.getElementById("btnTabEvalScores");
+  const paneRoles = document.getElementById("paneEvalRoles");
+  const paneScores = document.getElementById("paneEvalScores");
+
+  if (tabKey === "scores") {
+    if (btnRoles) btnRoles.classList.remove("active");
+    if (btnScores) btnScores.classList.add("active");
+    if (paneRoles) paneRoles.style.display = "none";
+    if (paneScores) paneScores.style.display = "block";
+  } else {
+    if (btnRoles) btnRoles.classList.add("active");
+    if (btnScores) btnScores.classList.remove("active");
+    if (paneRoles) paneRoles.style.display = "block";
+    if (paneScores) paneScores.style.display = "none";
+  }
+}
 
 function openEvaluateRolesModal() {
   const modal = document.getElementById("modalEvaluateRoles");
@@ -4013,24 +4033,38 @@ function openEvaluateRolesModal() {
   } else {
     openModal("modalEvaluateRoles");
   }
-  triggerEvaluateRoles();
+  // 默认切换回核心角色映射 Tab
+  switchEvalRolesTab("roles");
+  triggerEvaluateRoles(false);
 }
 
-async function triggerEvaluateRoles() {
+async function triggerEvaluateRoles(isReEvaluate = false) {
   const loadingEl = document.getElementById("evalRolesLoading");
   const contentEl = document.getElementById("evalRolesContent");
   const footerEl = document.getElementById("evalRolesFooter");
+  const reEvalBtn = document.getElementById("btnReEvaluateRolesInModal");
 
-  if (loadingEl) loadingEl.style.display = "block";
-  if (contentEl) contentEl.style.display = "none";
-  if (footerEl) footerEl.style.display = "none";
+  let origBtnHtml = "";
+  if (isReEvaluate && reEvalBtn) {
+    origBtnHtml = reEvalBtn.innerHTML;
+    reEvalBtn.disabled = true;
+    reEvalBtn.innerHTML = `<span><span class="spinner" style="width:11px;height:11px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> 评判中...</span>`;
+  } else {
+    if (loadingEl) loadingEl.style.display = "block";
+    if (contentEl) contentEl.style.display = "none";
+    if (footerEl) footerEl.style.display = "none";
+  }
+
+  const minDelayPromise = isReEvaluate ? new Promise(r => setTimeout(r, 450)) : Promise.resolve();
 
   try {
-    const res = await fetch("/api/models/evaluate-roles", {
+    const fetchPromise = fetch("/api/models/evaluate-roles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
+
+    const [res] = await Promise.all([fetchPromise, minDelayPromise]);
     const data = await res.json();
     if (!res.ok || data.status !== "ok") {
       throw new Error(data.detail || data.error || "评判服务异常");
@@ -4042,14 +4076,25 @@ async function triggerEvaluateRoles() {
     if (loadingEl) loadingEl.style.display = "none";
     if (contentEl) contentEl.style.display = "block";
     if (footerEl) footerEl.style.display = "flex";
+
+    if (isReEvaluate) {
+      showToast("✓ AI 决策模型已完成重新评判并刷新推荐映射！", "success");
+    }
   } catch (err) {
-    if (loadingEl) {
+    if (isReEvaluate) {
+      showToast(`重新评判失败: ${err.message}`, "danger");
+    } else if (loadingEl) {
       loadingEl.innerHTML = `
         <div style="font-size: 32px; margin-bottom: 12px;">⚠️</div>
         <div style="font-size: 15px; font-weight: 700; color: var(--danger); margin-bottom: 8px;">智能评判失败</div>
         <div style="font-size: 12.5px; color: var(--text-muted); max-width: 480px; margin: 0 auto 16px;">${err.message}</div>
-        <button class="btn btn-secondary btn-sm" onclick="triggerEvaluateRoles()">🔄 重试</button>
+        <button class="btn btn-secondary btn-sm" onclick="triggerEvaluateRoles(false)">🔄 重试</button>
       `;
+    }
+  } finally {
+    if (isReEvaluate && reEvalBtn) {
+      reEvalBtn.disabled = false;
+      reEvalBtn.innerHTML = origBtnHtml || `<span>🔄 重新评判</span>`;
     }
   }
 }
@@ -4060,20 +4105,20 @@ function renderEvaluatedRolesModal(data) {
   const analysis = data.model_analysis || [];
   const allModels = data.all_enabled_models || [];
 
-  // 1. 渲染引擎信息横幅
+  // 1. 渲染引擎信息横幅 (紧凑精致)
   const engineCard = document.getElementById("evalEngineCard");
   if (engineCard) {
-    const pingText = engine.decision_probe_ms > 0 ? ` · 在线探测延迟 ${engine.decision_probe_ms}ms` : "";
+    const pingText = engine.decision_probe_ms > 0 ? ` · 在线探测 ${engine.decision_probe_ms}ms` : "";
     engineCard.innerHTML = `
-      <div class="eval-engine-meta">
-        <div class="eval-engine-chip">🧠</div>
+      <div class="eval-engine-meta" style="gap: 8px;">
+        <span style="font-size: 16px;">🧠</span>
         <div>
-          <div class="eval-engine-title">评判决策大脑: ${engine.name} (${engine.model})</div>
-          <div class="eval-engine-subtitle">后端架构: ${engine.type} · 评判分析耗时 ${engine.latency_ms}ms${pingText}</div>
+          <div class="eval-engine-title" style="font-size: 12.5px;">评判决策大脑: <strong>${engine.name} (${engine.model})</strong></div>
+          <div class="eval-engine-subtitle" style="font-size: 11px;">架构: ${engine.type} · 分析耗时 ${engine.latency_ms}ms${pingText}</div>
         </div>
       </div>
       <div>
-        <span class="badge badge-purple" style="font-size: 11px;">状态: 在线激活</span>
+        <span class="badge badge-purple" style="font-size: 10px; padding: 2px 6px;">● 在线激活</span>
       </div>
     `;
   }
@@ -4084,7 +4129,7 @@ function renderEvaluatedRolesModal(data) {
     summaryEl.textContent = data.summary_reasoning || "全景评判完成，已生成最优角色配置。";
   }
 
-  // 3. 渲染 4 个角色卡片
+  // 3. 渲染 4 个角色卡片 (紧凑型)
   const rolesGrid = document.getElementById("evalRolesGrid");
   if (rolesGrid) {
     const roleDefs = [
@@ -4142,14 +4187,12 @@ function renderEvaluatedRolesModal(data) {
             <div class="eval-role-card-title">
               <span>${rd.icon}</span>
               <span class="badge ${rd.colorClass}">${rd.name}</span>
+              <span class="eval-role-tip-icon" title="${rd.desc}">?</span>
             </div>
-            <div style="font-size: 11px; color: var(--text-muted);">角色指派</div>
+            <span style="font-size: 10px; color: var(--text-muted);">角色指派</span>
           </div>
-          <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.4;">
-            ${rd.desc}
-          </div>
-          <div style="margin-top: 4px;">
-            <select class="form-control" id="evalRoleSelect_${rd.key}" style="font-weight: 600; font-family: var(--font-mono); font-size: 12.5px;">
+          <div>
+            <select class="form-control form-control-sm" id="evalRoleSelect_${rd.key}" style="font-weight: 600; font-family: var(--font-mono); font-size: 12px; padding: 4px 8px;">
               ${optionsHtml}
             </select>
           </div>
@@ -4161,7 +4204,7 @@ function renderEvaluatedRolesModal(data) {
     }).join("");
   }
 
-  // 4. 渲染模型评分折叠表
+  // 4. 渲染模型评分折叠表 (TAB 2)
   const scoresTableContainer = document.getElementById("evalModelScoresTable");
   if (scoresTableContainer && analysis.length > 0) {
     scoresTableContainer.innerHTML = `
