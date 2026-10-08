@@ -1,9 +1,10 @@
 import os
 import json
+import re
 import tempfile
 import pytest
 from pathlib import Path
-from auto_router.config import Provider, RouterConfig, expand_env_vars, load_config
+from auto_router.config import Provider, RouterConfig, expand_env_vars, load_config, save_config, has_plain_secrets
 
 def test_expand_env_vars():
     os.environ["TEST_AMRA_KEY"] = "secret_12345"
@@ -12,6 +13,10 @@ def test_expand_env_vars():
     # ${VAR} 格式
     assert expand_env_vars("${TEST_AMRA_KEY}") == "secret_12345"
     assert expand_env_vars("${TEST_AMRA_HOST}/v1") == "https://api.test.com/v1"
+    
+    # ${VAR:-default} 默认值格式
+    assert expand_env_vars("${TEST_NOT_SET_VAR:-http://fallback:8080}") == "http://fallback:8080"
+    assert expand_env_vars("${TEST_AMRA_HOST:-http://fallback:8080}") == "https://api.test.com"
     
     # $VAR 格式
     assert expand_env_vars("$TEST_AMRA_KEY") == "secret_12345"
@@ -57,3 +62,63 @@ def test_load_config_with_env_interpolation(tmp_path):
     prov = cfg.providers["demo"]
     assert prov.api_key == "sk-interp-999"
     assert prov.resolved_base_url == "http://env-host:5000/v1"
+
+def test_has_plain_secrets():
+    # 占位符不应判定为明文密钥
+    safe_data = {
+        "providers": {
+            "jusheng": {
+                "name": "具生涌动",
+                "base_url": "${JUSHENG_BASE_URL}",
+                "api_key": "${JUSHENG_API_KEY}"
+            }
+        }
+    }
+    assert not has_plain_secrets(safe_data)
+    
+    # 包含真实明文 sk- 密钥必须被捕获
+    leak_data = {
+        "providers": {
+            "jusheng": {
+                "name": "具生涌动",
+                "base_url": "http://1.2.3.4:80",
+                "api_key": "sk-mock-provider-secret-key-1234567890abcdef"
+            }
+        }
+    }
+    assert has_plain_secrets(leak_data)
+
+def test_save_config_auto_routes_plain_secrets_to_local(tmp_path, monkeypatch):
+    # 当包含明文密钥且未指定绝对路径时，应自动路由到 local.json
+    monkeypatch.chdir(tmp_path)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    
+    leak_cfg = {
+        "providers": {
+            "jusheng": {
+                "name": "具生涌动",
+                "base_url": "http://1.2.3.4:80",
+                "api_key": "sk-real-live-secret-key-1234567890"
+            }
+        }
+    }
+    saved = save_config(leak_cfg)
+    assert "router_config.local.json" in saved
+    assert (config_dir / "router_config.local.json").exists()
+    assert not (config_dir / "router_config.json").exists()
+
+def test_actual_router_config_is_clean_of_secrets():
+    # 验证项目中当前的 config/router_config.json 绝不含有任何明文 sk- 密钥
+    root = Path(__file__).resolve().parents[1]
+    cfg_path = root / "config" / "router_config.json"
+    if not cfg_path.exists():
+        pytest.skip("config/router_config.json does not exist")
+    
+    text = cfg_path.read_text(encoding="utf-8")
+    assert "${JUSHENG_API_KEY}" in text
+    assert "${ANTIGRAVITY_API_KEY}" in text
+    
+    # 正则校验不含实际 sk- 密钥与明文 Token
+    sk_matches = re.findall(r"sk-[a-zA-Z0-9]{20,}", text)
+    assert not sk_matches, f"Found leaked keys in config/router_config.json: {sk_matches}"

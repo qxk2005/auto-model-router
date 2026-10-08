@@ -308,15 +308,48 @@ def load_config(path: str | Path | None = None, *, bench: BenchmarkClient | None
                         policy=raw.get("policy") or {}, raw=raw)
 
 
+def has_plain_secrets(raw: dict) -> bool:
+    """Check if config contains literal/plain secrets rather than ${ENV} placeholders."""
+    if not isinstance(raw, dict):
+        return False
+    # Check providers
+    for p in (raw.get("providers") or {}).values():
+        if isinstance(p, dict):
+            key = str(p.get("api_key") or p.get("api_key_literal") or "").strip()
+            if key and not key.startswith("$") and key != "lm-studio" and not key.startswith("sk-your-"):
+                if len(key) >= 12 or key.startswith("sk-"):
+                    return True
+    # Check classifier policy
+    clf = (raw.get("policy") or {}).get("classifier") or {}
+    for field in ("api_key", "api_token"):
+        k = str(clf.get(field) or "").strip()
+        if k and not k.startswith("$") and not k.startswith("sk-your-"):
+            if len(k) >= 12 or k.startswith("sk-"):
+                return True
+    for sub in ("jev", "clef", "cloudflare"):
+        if isinstance(clf.get(sub), dict):
+            for field in ("api_key", "api_token"):
+                k = str(clf[sub].get(field) or "").strip()
+                if k and not k.startswith("$") and not k.startswith("sk-your-"):
+                    if len(k) >= 12 or k.startswith("sk-"):
+                        return True
+    return False
+
+
 def save_config(raw: dict, path: str | Path | None = None) -> str:
-    """Save raw configuration dict to JSON or YAML."""
+    """Save raw configuration dict to JSON or YAML.
+
+    If configuration contains literal plain secrets, automatically routes
+    save destination to config/router_config.local.json (which is git-ignored)
+    to prevent accidental credential leakage to public version control.
+    """
     if not path:
         env_p = os.environ.get("AUTO_ROUTER_CONFIG")
         if env_p:
             path = env_p
         else:
             local_p = Path("config/router_config.local.json")
-            if local_p.exists():
+            if local_p.exists() or has_plain_secrets(raw):
                 path = local_p
             else:
                 path = Path("config/router_config.json")

@@ -567,9 +567,10 @@ async def update_config(payload: ConfigUpdateRequest):
         if "***" in str(in_clf.get("api_token") or ""):
             in_clf["api_token"] = orig_clf.get("api_token", in_clf.get("api_token"))
 
-        save_config(raw_dict)
+        saved_path = save_config(raw_dict)
         reload_router_system()
-        return {"status": "ok", "message": "配置已保存并实时生效"}
+        filename = Path(saved_path).name
+        return {"status": "ok", "message": f"配置已安全保存至 {filename} 并实时生效", "saved_file": filename}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"保存配置失败: {exc}")
 
