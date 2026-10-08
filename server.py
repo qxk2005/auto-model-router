@@ -48,7 +48,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import auto_router.server as ar_server
-from auto_router.config import for_http, load_config, save_config, expand_env_vars, normalize_provider_url
+from auto_router.config import (
+    for_http, load_config, save_config, expand_env_vars, normalize_provider_url,
+    sanitize_config_for_public_repo, update_local_env_file
+)
 import auto_router.jev as jev
 from auto_router.jev import LocalLayaClassifier, Judgement, JevClassifier, normalize_jev_url
 from auto_router.clef import ClefClassifier, DEFAULT_CLEF_MODEL
@@ -567,10 +570,25 @@ async def update_config(payload: ConfigUpdateRequest):
         if "***" in str(in_clf.get("api_token") or ""):
             in_clf["api_token"] = orig_clf.get("api_token", in_clf.get("api_token"))
 
-        saved_path = save_config(raw_dict)
+        # 双轨自动隔离保护：识别明文凭据，自动写入本地 .env 并转化为占位符
+        sanitized_cfg, extracted_secrets = sanitize_config_for_public_repo(raw_dict)
+        for var_name, secret_val in extracted_secrets.items():
+            update_local_env_file(var_name, secret_val)
+
+        # 公共文件始终保存脱敏后的占位符版本，确保任何 git commit 绝无泄露风险
+        save_config(sanitized_cfg, path=Path("config/router_config.json"))
+
+        # 本地私有文件同步保存生效版本（无论直接从 .env 解析还是 local.json 读取均完美兼容）
+        local_p = Path("config/router_config.local.json")
+        if extracted_secrets or local_p.exists():
+            save_config(raw_dict, path=local_p)
+            saved_filename = "router_config.local.json (私有) & .env"
+        else:
+            saved_filename = "router_config.json"
+
         reload_router_system()
-        filename = Path(saved_path).name
-        return {"status": "ok", "message": f"配置已安全保存至 {filename} 并实时生效", "saved_file": filename}
+        msg = "配置已保存并实时生效（🔐 凭据已安全隔离至本地 .env，公开配置仅引用占位符）" if extracted_secrets else "配置已保存并实时生效"
+        return {"status": "ok", "message": msg, "saved_file": saved_filename}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"保存配置失败: {exc}")
 

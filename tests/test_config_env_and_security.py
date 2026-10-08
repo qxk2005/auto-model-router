@@ -4,7 +4,10 @@ import re
 import tempfile
 import pytest
 from pathlib import Path
-from auto_router.config import Provider, RouterConfig, expand_env_vars, load_config, save_config, has_plain_secrets
+from auto_router.config import (
+    Provider, RouterConfig, expand_env_vars, load_config, save_config,
+    has_plain_secrets, generate_env_var_name, update_local_env_file, sanitize_config_for_public_repo
+)
 
 def test_expand_env_vars():
     os.environ["TEST_AMRA_KEY"] = "secret_12345"
@@ -122,3 +125,60 @@ def test_actual_router_config_is_clean_of_secrets():
     # 正则校验不含实际 sk- 密钥与明文 Token
     sk_matches = re.findall(r"sk-[a-zA-Z0-9]{20,}", text)
     assert not sk_matches, f"Found leaked keys in config/router_config.json: {sk_matches}"
+
+
+def test_generate_env_var_name():
+    assert generate_env_var_name("deepseek") == "DEEPSEEK_API_KEY"
+    assert generate_env_var_name("openai") == "OPENAI_API_KEY"
+    assert generate_env_var_name("具生涌动") == "JUSHENG_API_KEY"
+    assert generate_env_var_name("月之暗面") == "MOONSHOT_API_KEY"
+    assert generate_env_var_name("silicon-flow") == "SILICON_FLOW_API_KEY"
+
+
+def test_update_local_env_file(tmp_path):
+    env_file = tmp_path / ".env"
+    update_local_env_file("CUSTOM_AMRA_KEY", "sk-test-secret-value-12345", env_path=env_file)
+    content = env_file.read_text(encoding="utf-8")
+    assert "CUSTOM_AMRA_KEY=sk-test-secret-value-12345" in content
+    assert os.environ.get("CUSTOM_AMRA_KEY") == "sk-test-secret-value-12345"
+
+    # 测试重复更新同一变量不会产生多份
+    update_local_env_file("CUSTOM_AMRA_KEY", "sk-new-secret-value-67890", env_path=env_file)
+    content2 = env_file.read_text(encoding="utf-8")
+    assert "CUSTOM_AMRA_KEY=sk-new-secret-value-67890" in content2
+    assert "sk-test-secret-value-12345" not in content2
+
+
+def test_sanitize_config_for_public_repo():
+    raw_payload = {
+        "providers": {
+            "minimax": {
+                "name": "minimax",
+                "base_url": "https://api.minimax.chat/v1",
+                "api_key": "sk-live-plain-minimax-key-123456789"
+            },
+            "lm-studio": {
+                "name": "lm-studio",
+                "base_url": "http://localhost:1234/v1",
+                "api_key": "lm-studio"
+            },
+            "jusheng": {
+                "name": "具生涌动",
+                "base_url": "http://1.2.3.4:88",
+                "api_key": "${JUSHENG_API_KEY}"
+            }
+        }
+    }
+
+    sanitized, extracted = sanitize_config_for_public_repo(raw_payload)
+    # 真实明文 Key 应被提取
+    assert "MINIMAX_API_KEY" in extracted
+    assert extracted["MINIMAX_API_KEY"] == "sk-live-plain-minimax-key-123456789"
+
+    # 脱敏配置中应该被替换为环境变量引用
+    assert sanitized["providers"]["minimax"]["api_key"] == "${MINIMAX_API_KEY}"
+
+    # 原有的 lm-studio 和环境变量应原样保留
+    assert sanitized["providers"]["lm-studio"]["api_key"] == "lm-studio"
+    assert sanitized["providers"]["jusheng"]["api_key"] == "${JUSHENG_API_KEY}"
+

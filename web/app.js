@@ -2219,7 +2219,7 @@ function openAddProviderModal() {
 
   const keyInput = document.getElementById("provKeyInput");
   keyInput.value = "";
-  keyInput.placeholder = "本地 LM Studio 随意填写即可；云端厂商需真实 Key";
+  keyInput.placeholder = "支持填写真实 Key（自动隔离存入本地 .env）或环境变量引用";
 
   const fetchBox = document.getElementById("provAutoFetchBox");
   if (fetchBox) fetchBox.style.display = "block";

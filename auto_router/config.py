@@ -308,6 +308,104 @@ def load_config(path: str | Path | None = None, *, bench: BenchmarkClient | None
                         policy=raw.get("policy") or {}, raw=raw)
 
 
+# 常见中文提供商到环境变量前缀映射
+KNOWN_PROVIDER_ENV_PREFIXES = {
+    "具生涌动": "JUSHENG",
+    "智谱": "ZHIPU",
+    "智谱AI": "ZHIPU",
+    "通义千问": "QWEN",
+    "通义": "QWEN",
+    "阿里": "ALIYUN",
+    "阿里云": "ALIYUN",
+    "月之暗面": "MOONSHOT",
+    "Kimi": "MOONSHOT",
+    "kimi": "MOONSHOT",
+    "零一万物": "YI",
+    "百川智能": "BAICHUAN",
+    "百川": "BAICHUAN",
+    "商汤": "SENSETIME",
+    "阶跃星辰": "STEPFUN",
+    "MiniMax": "MINIMAX",
+    "minimax": "MINIMAX",
+    "深度求索": "DEEPSEEK",
+    "幻方": "DEEPSEEK",
+}
+
+
+def generate_env_var_name(provider_name: str) -> str:
+    """Generate a clean, standardized uppercase environment variable name for a provider.
+    e.g. 'deepseek' -> 'DEEPSEEK_API_KEY', '具生涌动' -> 'JUSHENG_API_KEY'
+    """
+    clean_p = str(provider_name or "").strip()
+    if clean_p in KNOWN_PROVIDER_ENV_PREFIXES:
+        return f"{KNOWN_PROVIDER_ENV_PREFIXES[clean_p]}_API_KEY"
+
+    # 若已经是纯英文字符/下划线/数字
+    ascii_key = re.sub(r"[^A-Za-z0-9_]+", "_", clean_p).strip("_").upper()
+    if not ascii_key:
+        import hashlib
+        h = hashlib.md5(clean_p.encode("utf-8")).hexdigest()[:6].upper()
+        ascii_key = f"PROV_{h}"
+    return f"{ascii_key}_API_KEY"
+
+
+def update_local_env_file(var_name: str, var_val: str, env_path: str | Path | None = None) -> bool:
+    """Safely append or update an environment variable in the local private .env file."""
+    if not var_name or not var_val:
+        return False
+    path = Path(env_path) if env_path else Path(".env")
+
+    # 同步注入到当前进程环境变量，供即时读取
+    os.environ[var_name] = var_val
+
+    lines = []
+    found = False
+    if path.exists():
+        try:
+            content = path.read_text(encoding="utf-8")
+            lines = content.splitlines()
+        except Exception:
+            lines = []
+
+    pattern = re.compile(rf"^\s*{re.escape(var_name)}\s*=")
+    new_lines = []
+    for line in lines:
+        if pattern.match(line):
+            new_lines.append(f"{var_name}={var_val}")
+            found = True
+        else:
+            new_lines.append(line)
+
+    if not found:
+        if new_lines and new_lines[-1].strip() != "":
+            new_lines.append("")
+        new_lines.append(f"{var_name}={var_val}")
+
+    path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    return True
+
+
+def sanitize_config_for_public_repo(raw: dict) -> tuple[dict, dict[str, str]]:
+    """Inspect raw config dict, extract any plain secrets into a dict of {ENV_VAR: plain_secret},
+    and return a sanitized copy of raw config where all plain secrets are replaced by ${ENV_VAR}.
+    """
+    import copy
+    sanitized = copy.deepcopy(raw)
+    extracted_secrets = {}
+
+    for prov_name, prov in (sanitized.get("providers") or {}).items():
+        if isinstance(prov, dict):
+            key = str(prov.get("api_key") or prov.get("api_key_literal") or "").strip()
+            # 排除环境变量占位符、lm-studio 及 dummy 测试值
+            if key and not key.startswith("$") and key != "lm-studio" and not key.startswith("sk-your-"):
+                if len(key) >= 12 or key.startswith("sk-") or "key" in key.lower() or "token" in key.lower():
+                    env_var = generate_env_var_name(prov_name)
+                    extracted_secrets[env_var] = key
+                    prov["api_key"] = f"${{{env_var}}}"
+
+    return sanitized, extracted_secrets
+
+
 def has_plain_secrets(raw: dict) -> bool:
     """Check if config contains literal/plain secrets rather than ${ENV} placeholders."""
     if not isinstance(raw, dict):
