@@ -9,14 +9,14 @@
     },
     "具生涌动": {
       "name": "具生涌动",
-      "base_url": "http://8.148.249.98:88/",
+      "base_url": "${JUSHENG_BASE_URL:-http://8.148.249.98:88/}",
       "api_key": "${JUSHENG_API_KEY}",
       "cache": "openai",
       "api": "openai"
     },
     "本地 antigravity-gemini-3.6-flash": {
       "name": "本地 antigravity-gemini-3.6-flash",
-      "base_url": "https://antigravitycli.niuzhidao.cc/",
+      "base_url": "${ANTIGRAVITY_BASE_URL:-https://antigravitycli.niuzhidao.cc/}",
       "api_key": "${ANTIGRAVITY_API_KEY}",
       "cache": "openai",
       "api": "openai"
