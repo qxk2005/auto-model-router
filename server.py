@@ -51,6 +51,7 @@ import auto_router.server as ar_server
 from auto_router.config import for_http, load_config, save_config, expand_env_vars, normalize_provider_url
 import auto_router.jev as jev
 from auto_router.jev import LocalLayaClassifier, Judgement, JevClassifier, normalize_jev_url
+from auto_router.clef import ClefClassifier, DEFAULT_CLEF_MODEL
 from auto_router.verify import VerifyPolicy
 from auto_router.router import Router
 from evaluator import BenchmarkEvaluator, BenchmarkSummary
@@ -439,9 +440,17 @@ async def get_system_status():
 
     active_clf = getattr(ar_server.router, "classifier", None)
     configured_backend = str(clf_cfg.get("backend", "local")).lower()
-    is_jev = isinstance(active_clf, JevClassifier) or configured_backend in ("jev", "hosted")
+    is_clef = isinstance(active_clf, ClefClassifier) or configured_backend in ("clef", "cloudflare", "cf")
+    is_jev = (not is_clef) and (isinstance(active_clf, JevClassifier) or configured_backend in ("jev", "hosted"))
 
-    if is_jev:
+    if is_clef:
+        clf_backend = "clef"
+        clf_name = "Cloudflare Clef"
+        clef_mod = getattr(active_clf, "model", None) or (clf_cfg.get("clef", {}) or {}).get("model") or (clf_cfg.get("cloudflare", {}) or {}).get("model") or DEFAULT_CLEF_MODEL
+        clef_ep = getattr(active_clf, "endpoint", None) or "Cloudflare Workers AI"
+        engine_display = f"Cloudflare Clef 极速决策模型 ({clef_mod.replace('@cf/cloudflare/', '')})"
+        endpoint_display = clef_ep
+    elif is_jev:
         clf_backend = "jev"
         clf_name = "Jev AI"
         jev_mod = getattr(active_clf, "model", None) or (clf_cfg.get("jev", {}) or {}).get("model") or "jev-latest"
@@ -473,11 +482,13 @@ async def get_system_status():
         "mps_available": mps_ok,
         "classifier_backend": clf_backend,
         "classifier_name": clf_name,
+        "is_clef": is_clef,
         "is_jev": is_jev,
         "engine_display": engine_display,
         "endpoint_display": endpoint_display,
-        "classifier_model": (clf_cfg.get("jev", {}) or {}).get("model", "jev-latest") if is_jev else clf_cfg.get("model", "convaiinnovations/laya"),
+        "classifier_model": (clf_cfg.get("clef", {}) or {}).get("model", DEFAULT_CLEF_MODEL) if is_clef else ((clf_cfg.get("jev", {}) or {}).get("model", "jev-latest") if is_jev else clf_cfg.get("model", "convaiinnovations/laya")),
         "classifier_subfolder": clf_cfg.get("subfolder", "multilingual"),
+        "clef_model": (clf_cfg.get("clef", {}) or {}).get("model") or (clf_cfg.get("cloudflare", {}) or {}).get("model") or DEFAULT_CLEF_MODEL,
         "jev_base_url": (clf_cfg.get("jev", {}) or {}).get("base_url") if isinstance(clf_cfg.get("jev"), dict) else clf_cfg.get("base_url", "https://jev-ai.pro/api/v1/"),
         "jev_model": (clf_cfg.get("jev", {}) or {}).get("model") if isinstance(clf_cfg.get("jev"), dict) else clf_cfg.get("model", "jev-latest"),
         "active_policy": pol_cfg.get("name", "F_expected"),
@@ -498,12 +509,18 @@ async def get_config():
     for prov_name, prov in (cfg.get("providers") or {}).items():
         if isinstance(prov, dict) and "api_key" in prov:
             prov["api_key"] = mask_secret(prov["api_key"])
-    # 敏感信息脱敏：Jev API Key
+    # 敏感信息脱敏：Jev API Key 与 Cloudflare Clef Token
     clf = (cfg.get("policy") or {}).get("classifier") or {}
     if isinstance(clf.get("jev"), dict) and "api_key" in clf["jev"]:
         clf["jev"]["api_key"] = mask_secret(clf["jev"]["api_key"])
+    if isinstance(clf.get("clef"), dict) and "api_token" in clf["clef"]:
+        clf["clef"]["api_token"] = mask_secret(clf["clef"]["api_token"])
+    if isinstance(clf.get("cloudflare"), dict) and "api_token" in clf["cloudflare"]:
+        clf["cloudflare"]["api_token"] = mask_secret(clf["cloudflare"]["api_token"])
     if "api_key" in clf:
         clf["api_key"] = mask_secret(clf["api_key"])
+    if "api_token" in clf:
+        clf["api_token"] = mask_secret(clf["api_token"])
     return cfg
 
 
@@ -527,7 +544,7 @@ async def update_config(payload: ConfigUpdateRequest):
                     orig_prov = (existing_cfg.get("providers") or {}).get(prov_name, {})
                     prov["api_key"] = orig_prov.get("api_key", in_key)
 
-        # 恢复 Jev API Key
+        # 恢复 Jev API Key 与 Cloudflare Clef Token
         in_clf = (raw_dict.get("policy") or {}).get("classifier") or {}
         orig_clf = (existing_cfg.get("policy") or {}).get("classifier") or {}
         if isinstance(in_clf.get("jev"), dict):
@@ -535,8 +552,20 @@ async def update_config(payload: ConfigUpdateRequest):
             if "***" in in_jev_key:
                 orig_jev = orig_clf.get("jev") if isinstance(orig_clf.get("jev"), dict) else {}
                 in_clf["jev"]["api_key"] = orig_jev.get("api_key", in_jev_key)
+        if isinstance(in_clf.get("clef"), dict):
+            in_clef_token = str(in_clf["clef"].get("api_token") or "")
+            if "***" in in_clef_token:
+                orig_clef = orig_clf.get("clef") if isinstance(orig_clf.get("clef"), dict) else {}
+                in_clf["clef"]["api_token"] = orig_clef.get("api_token", in_clef_token)
+        if isinstance(in_clf.get("cloudflare"), dict):
+            in_cf_token = str(in_clf["cloudflare"].get("api_token") or "")
+            if "***" in in_cf_token:
+                orig_cf = orig_clf.get("cloudflare") if isinstance(orig_clf.get("cloudflare"), dict) else {}
+                in_clf["cloudflare"]["api_token"] = orig_cf.get("api_token", in_cf_token)
         if "***" in str(in_clf.get("api_key") or ""):
             in_clf["api_key"] = orig_clf.get("api_key", in_clf.get("api_key"))
+        if "***" in str(in_clf.get("api_token") or ""):
+            in_clf["api_token"] = orig_clf.get("api_token", in_clf.get("api_token"))
 
         save_config(raw_dict)
         reload_router_system()
@@ -651,6 +680,133 @@ async def test_jev_decision(req: JevDecisionTestRequest):
             }
         except Exception as exc:
             return {"status": "error", "error": f"Jev 决策测试异常: {exc}", "url": client.systemone_url}
+
+    return await loop.run_in_executor(None, _run)
+
+
+# ---------------------------------------------------------------------------
+# Cloudflare Clef (Workers AI) Testing API
+# ---------------------------------------------------------------------------
+class ClefTestRequest(BaseModel):
+    account_id: str | None = None
+    api_token: str | None = None
+    model: str | None = None
+    base_url: str | None = None
+
+
+@app.post("/api/clef/test")
+async def test_clef_endpoint(req: ClefTestRequest):
+    """Test connection to Cloudflare Workers AI Clef endpoint without running inference."""
+    raw_acc = expand_env_vars(req.account_id) if req.account_id else None
+    raw_token = expand_env_vars(req.api_token) if req.api_token else None
+    raw_url = expand_env_vars(req.base_url) if req.base_url else None
+
+    # 如果传入的 token 是掩码值或未输入，尝试从已存配置或环境变量中读取真实密钥
+    if not raw_token or "***" in raw_token:
+        current_cfg = get_current_raw_config()
+        clf_cfg = (current_cfg.get("policy") or {}).get("classifier") or {}
+        clef_cfg = clf_cfg.get("clef") if isinstance(clf_cfg.get("clef"), dict) else (clf_cfg.get("cloudflare") if isinstance(clf_cfg.get("cloudflare"), dict) else {})
+        raw_token = clef_cfg.get("api_token") or clef_cfg.get("api_key") or os.environ.get("CLOUDFLARE_API_TOKEN") or os.environ.get("CLOUDFLARE_TOKEN") or raw_token
+
+    if not raw_acc:
+        current_cfg = get_current_raw_config()
+        clf_cfg = (current_cfg.get("policy") or {}).get("classifier") or {}
+        clef_cfg = clf_cfg.get("clef") if isinstance(clf_cfg.get("clef"), dict) else (clf_cfg.get("cloudflare") if isinstance(clf_cfg.get("cloudflare"), dict) else {})
+        raw_acc = clef_cfg.get("account_id") or os.environ.get("CLOUDFLARE_ACCOUNT_ID") or raw_acc
+
+    try:
+        client = ClefClassifier(account_id=raw_acc, api_token=raw_token, model=req.model or DEFAULT_CLEF_MODEL, base_url=raw_url)
+        loop = asyncio.get_event_loop()
+        res = await loop.run_in_executor(None, client.test_connection)
+        return res
+    except Exception as exc:
+        return {"status": "error", "error": f"Cloudflare 测试异常: {exc}"}
+
+
+class ClefDecisionTestRequest(BaseModel):
+    account_id: str | None = None
+    api_token: str | None = None
+    model: str | None = None
+    base_url: str | None = None
+    prompt: str | None = None
+    test_judge: bool = True
+
+
+@app.post("/api/clef/test-decision")
+async def test_clef_decision(req: ClefDecisionTestRequest):
+    """Run a live decision/classification and optional adequacy test using Cloudflare Clef."""
+    raw_acc = expand_env_vars(req.account_id) if req.account_id else None
+    raw_token = expand_env_vars(req.api_token) if req.api_token else None
+    raw_url = expand_env_vars(req.base_url) if req.base_url else None
+
+    if not raw_token or "***" in raw_token:
+        current_cfg = get_current_raw_config()
+        clf_cfg = (current_cfg.get("policy") or {}).get("classifier") or {}
+        clef_cfg = clf_cfg.get("clef") if isinstance(clf_cfg.get("clef"), dict) else (clf_cfg.get("cloudflare") if isinstance(clf_cfg.get("cloudflare"), dict) else {})
+        raw_token = clef_cfg.get("api_token") or clef_cfg.get("api_key") or os.environ.get("CLOUDFLARE_API_TOKEN") or os.environ.get("CLOUDFLARE_TOKEN") or raw_token
+
+    if not raw_acc:
+        current_cfg = get_current_raw_config()
+        clf_cfg = (current_cfg.get("policy") or {}).get("classifier") or {}
+        clef_cfg = clf_cfg.get("clef") if isinstance(clf_cfg.get("clef"), dict) else (clf_cfg.get("cloudflare") if isinstance(clf_cfg.get("cloudflare"), dict) else {})
+        raw_acc = clef_cfg.get("account_id") or os.environ.get("CLOUDFLARE_ACCOUNT_ID") or raw_acc
+
+    client = ClefClassifier(account_id=raw_acc, api_token=raw_token, model=req.model or DEFAULT_CLEF_MODEL, base_url=raw_url)
+    prompt = (req.prompt or "帮我写一个Python快速排序算法，要求带注释并处理边界情况").strip()
+
+    loop = asyncio.get_event_loop()
+    def _run():
+        if not client.api_token:
+            return {"status": "error", "error": "未配置 Cloudflare API Token，请在上方输入框填入或设置环境变量 CLOUDFLARE_API_TOKEN"}
+        if not client.account_id and not client.base_url:
+            return {"status": "error", "error": "未配置 Cloudflare Account ID，请填入或设置环境变量 CLOUDFLARE_ACCOUNT_ID"}
+
+        t0 = time.perf_counter()
+        try:
+            clf_res = client(prompt)
+            latency_clf_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+            if clf_res.failed:
+                return {
+                    "status": "error",
+                    "error": "Cloudflare Clef 分类调用失败，请检查 Account ID 与 API Token 是否正确、端点是否可达或是否超出配额",
+                    "endpoint": client.endpoint,
+                }
+
+            judge_res = None
+            latency_judge_ms = 0.0
+            if req.test_judge:
+                t1 = time.perf_counter()
+                sample_ans = "def quicksort(arr): return arr if len(arr) <= 1 else quicksort([x for x in arr[1:] if x < arr[0]]) + [arr[0]] + quicksort([x for x in arr[1:] if x >= arr[0]])"
+                judge_res = client.judge(prompt, sample_ans, category=clf_res.category)
+                latency_judge_ms = round((time.perf_counter() - t1) * 1000.0, 1)
+
+            return {
+                "status": "ok",
+                "message": f"Cloudflare Clef ({client.model}) 决策测试成功，已极速完成分析！",
+                "classification": {
+                    "category": clf_res.category,
+                    "category_confidence": round(clf_res.category_confidence, 3),
+                    "difficulty": round(clf_res.difficulty, 3),
+                    "difficulty_confidence": round(clf_res.difficulty_confidence, 3),
+                    "needs_tools": round(clf_res.needs_tools, 3),
+                    "needs_vision": round(clf_res.needs_vision, 3),
+                    "needs_long_context": round(clf_res.needs_long_context, 3),
+                    "stakes": round(clf_res.stakes, 3),
+                    "latency_ms": latency_clf_ms,
+                    "model": clf_res.model or client.model,
+                    "input_tokens": clf_res.input_tokens,
+                    "output_tokens": clf_res.output_tokens,
+                },
+                "judge": {
+                    "p_adequate": round(judge_res.p_adequate, 3) if judge_res else None,
+                    "failure": judge_res.failure if judge_res else None,
+                    "latency_ms": latency_judge_ms,
+                } if judge_res else None,
+                "latency_total_ms": round(latency_clf_ms + latency_judge_ms, 1),
+                "endpoint": client.endpoint,
+            }
+        except Exception as exc:
+            return {"status": "error", "error": f"Cloudflare Clef 决策测试异常: {exc}", "endpoint": client.endpoint}
 
     return await loop.run_in_executor(None, _run)
 

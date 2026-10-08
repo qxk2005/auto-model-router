@@ -379,10 +379,11 @@
               <label for="classifierBackendSelect">核心路由决策引擎 / 分类器后端 (Router Decision Engine)</label>
               <select id="classifierBackendSelect" class="form-control" onchange="onClassifierBackendChange(true)">
                 <option value="local">⚡ Laya 本地路由模型 (Local Laya Engine) [0成本 · 离线极速推理]</option>
+                <option value="clef">☁️ Cloudflare Clef 决策模型 (Workers AI Clef-flash) [免费·39ms极速]</option>
                 <option value="jev">🧠 Jev 云端决策模型 (Hosted Jev AI / TypeSafe) [高精度概率判决]</option>
                 <option value="heuristic">启发式静态规则 (Heuristic Rules) [无模型 · 调试备用]</option>
               </select>
-              <small class="form-hint">支持在本地轻量 Laya 引擎与 Jev AI 云端决策模型之间切换。下方已提供各自独立的专属设置区块进行精细化调优与连通性验证。</small>
+              <small class="form-hint">支持在 Cloudflare Clef 极速云端决策（免费 10,000 Neurons/日）、本地轻量 Laya 引擎与 Jev AI 决策模型之间切换。下方已提供各自独立的专属设置区块进行精细化调优与连通性验证。</small>
             </div>
           </div>
         </div>
@@ -531,6 +532,111 @@
           </div>
         </div>
 
+        <!-- Policy Card: Cloudflare Clef 云端极速决策模型引擎配置 (专属独立区块) -->
+        <div class="section-card" id="cardClefSettings" style="margin-top: 24px;">
+          <div class="card-header" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <h3>☁️ Cloudflare Clef 决策模型配置 (Workers AI / Clef-flash)</h3>
+                <span class="badge" id="clefStatusBadge" style="background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; font-size: 12px; padding: 2px 8px; border-radius: 4px; font-weight: 600;">就绪待命</span>
+              </div>
+              <p>对接 Cloudflare Workers AI 开源决策模型，零本地显存开销。每日享有 10,000 Neurons 免费额度（Clef-flash 每日可免费处理超 120 万 Tokens），提供 ~39ms 超低延迟决策与质检。</p>
+            </div>
+            <button class="btn btn-primary" onclick="savePolicyConfig('clef')">
+              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+              <span>保存 Clef 配置</span>
+            </button>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="clefAccountIdInput">Cloudflare 账户 ID (Account ID)</label>
+              <input type="text" id="clefAccountIdInput" class="form-control" placeholder="在 Cloudflare 控制台右侧复制，或留空读取 CLOUDFLARE_ACCOUNT_ID">
+              <small class="form-hint">Cloudflare 仪表盘 URL 或右侧概览中的 32 位 Account ID</small>
+            </div>
+
+            <div class="form-group">
+              <label for="clefApiTokenInput">Cloudflare API 令牌 (API Token)</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="password" id="clefApiTokenInput" class="form-control" placeholder="留空则读取环境变量 CLOUDFLARE_API_TOKEN">
+                <button type="button" class="btn btn-secondary" onclick="toggleClefKeyVisibility()" style="padding: 0 12px; white-space: nowrap;">显示/隐藏</button>
+              </div>
+              <small class="form-hint">需具备 "Workers AI: Read/Edit" 权限的 API Token，凭据在服务端受脱敏保护</small>
+            </div>
+
+            <div class="form-group">
+              <label for="clefModelSelect">Clef 模型规格 (Model Spec)</label>
+              <select id="clefModelSelect" class="form-control">
+                <option value="@cf/cloudflare/clef-flash" selected>⚡ @cf/cloudflare/clef-flash [9B 极速 · 39ms · 每日免费120万Tokens]</option>
+                <option value="@cf/cloudflare/clef">🧠 @cf/cloudflare/clef [27B 旗舰精度 · 复杂意图与验收深度推理]</option>
+              </select>
+              <small class="form-hint">推荐默认使用 Clef-flash，决策速度极快且极省 Neurons 额度</small>
+            </div>
+
+            <div class="form-group">
+              <label for="clefBaseUrlInput">自定义 Base URL (可选 / Optional)</label>
+              <input type="text" id="clefBaseUrlInput" class="form-control" placeholder="留空则直连官方 api.cloudflare.com">
+              <small class="form-hint">支持填写自建反向代理、海外加速中转或 Cloudflare AI Gateway 网关地址</small>
+            </div>
+
+            <div class="form-group" style="grid-column: 1 / -1; margin-top: -4px;">
+              <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary" id="btnTestClef" onclick="testClefConnection()">
+                  <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                  <span>⚡ 测试 Cloudflare 连接 (免推理探活)</span>
+                </button>
+                <span id="clefTestStatus" style="font-size: 13px; color: var(--text-muted);"></span>
+              </div>
+            </div>
+
+            <!-- Clef 决策实时演练卡片 -->
+            <div class="form-group" style="grid-column: 1 / -1; margin-top: 6px; background: #f8fafc; border: 1px solid var(--card-border); border-radius: 8px; padding: 14px 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+                <strong style="font-size: 13.5px; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+                  🎯 运行 Clef 决策实时测试 (Live Decision Test)
+                </strong>
+                <span style="font-size: 12px; color: var(--text-muted);">调用 Clef-flash 执行特征分类与质检判决，测量实际毫秒级延迟</span>
+              </div>
+              <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <input type="text" id="clefTestPromptInput" class="form-control" placeholder="输入测试提示词" value="帮我写一个Python快速排序算法，要求带注释并处理边界情况" style="flex: 1; background: #ffffff;">
+                <button type="button" class="btn btn-primary" id="btnRunClefDecisionTest" onclick="runClefDecisionTest()" style="white-space: nowrap;">
+                  <span>🎯 运行决策测试</span>
+                </button>
+              </div>
+
+              <!-- 决策测试结果展示区 -->
+              <div id="clefDecisionResultBox" style="display: none; background: #ffffff; border: 1px solid var(--card-border); border-radius: 6px; padding: 12px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 10px;">
+                  <div style="background: #f1f5f9; padding: 8px 10px; border-radius: 6px;">
+                    <div style="font-size: 11px; color: var(--text-muted);">识别类别 (Category)</div>
+                    <div id="clefResCat" style="font-weight: 700; color: #0369a1; font-size: 14px;">--</div>
+                  </div>
+                  <div style="background: #f1f5f9; padding: 8px 10px; border-radius: 6px;">
+                    <div style="font-size: 11px; color: var(--text-muted);">难度评分 (Difficulty)</div>
+                    <div id="clefResDiff" style="font-weight: 700; color: #059669; font-size: 14px;">--</div>
+                  </div>
+                  <div style="background: #f1f5f9; padding: 8px 10px; border-radius: 6px;">
+                    <div style="font-size: 11px; color: var(--text-muted);">工具需求 (Tools)</div>
+                    <div id="clefResTools" style="font-weight: 700; color: var(--text-main); font-size: 14px;">--</div>
+                  </div>
+                  <div style="background: #f1f5f9; padding: 8px 10px; border-radius: 6px;">
+                    <div style="font-size: 11px; color: var(--text-muted);">错误风险代价 (Stakes)</div>
+                    <div id="clefResStakes" style="font-weight: 700; color: #b45309; font-size: 14px;">--</div>
+                  </div>
+                  <div style="background: #f1f5f9; padding: 8px 10px; border-radius: 6px;">
+                    <div style="font-size: 11px; color: var(--text-muted);">质检验收评分 (Adequacy)</div>
+                    <div id="clefResAdequate" style="font-weight: 700; color: #7c3aed; font-size: 14px;">--</div>
+                  </div>
+                </div>
+                <div style="font-size: 12px; color: var(--text-dim); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; border-top: 1px dashed var(--card-border); padding-top: 8px;">
+                  <span id="clefResMeta">耗时: -- ms | 响应模型: --</span>
+                  <span id="clefResTokens">端点: --</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Policy Card 4: 质检验收与二次升级 (Verify & Escalate) -->
         <div class="section-card" id="cardVerifySettings" style="margin-top: 24px;">
           <div class="card-header" style="flex-wrap: wrap; gap: 12px; align-items: center;">
@@ -557,6 +663,7 @@
             <div class="form-group">
               <label for="verifyJudgeModelSelect">质检裁决模型 (Judge Model)</label>
               <select id="verifyJudgeModelSelect" class="form-control">
+                <option value="clef">Cloudflare Clef 极速裁决模型 (Workers AI Clef-flash)</option>
                 <option value="laya">Laya 本地分类裁决引擎 (Local Engine)</option>
                 <option value="jev">Jev 云端分类裁决模型 (Hosted Jev AI / TypeSafe)</option>
               </select>
@@ -1290,6 +1397,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=20260929_eval_roles_v4"></script>
+  <script src="/web/app.js?v=20261008_clef_v1"></script>
 </body>
 </html>

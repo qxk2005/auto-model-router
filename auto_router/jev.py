@@ -888,13 +888,20 @@ def classifier_from_config(policy: dict | None):
     """Build the selected classifier backend from ``policy.classifier``.
 
     ``local``/``laya`` uses Laya on CUDA/MPS/CPU, ``jev``/``hosted`` uses Jev/TypeSafe API,
+    ``clef``/``cloudflare`` uses Cloudflare Workers AI Clef-flash/Clef,
     and ``heuristic`` disables model inference.
     """
     cfg = (policy or {}).get("classifier") or {}
     backend = str(cfg.get("backend") or "").lower()
     if not backend:
+        if cfg.get("clef") or cfg.get("cloudflare"):
+            from .clef import ClefClassifier
+            return ClefClassifier.from_config(cfg)
         if cfg.get("jev") or os.environ.get("JEV_AI_API_KEY") or os.environ.get("TYPESAFE_API_KEY"):
             return JevClassifier.from_config(cfg)
+        if os.environ.get("CLOUDFLARE_API_TOKEN") or os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
+            from .clef import ClefClassifier
+            return ClefClassifier.from_config(cfg)
         return None
     if backend in {"local", "laya"}:
         model_name = str(cfg.get("model") or "convaiinnovations/laya")
@@ -902,13 +909,16 @@ def classifier_from_config(policy: dict | None):
         device = str(cfg.get("device") or "auto")
         subfolder = cfg.get("subfolder", "multilingual")
         return LocalLayaClassifier(model=model_name, threads=threads, device=device, subfolder=subfolder)
+    if backend in {"clef", "cloudflare", "cf"}:
+        from .clef import ClefClassifier
+        return ClefClassifier.from_config(cfg)
     if backend == "hosted" and not cfg.get("jev") and not cfg.get("base_url"):
         return classify
     if backend in {"hosted", "jev", "remote"}:
         return JevClassifier.from_config(cfg)
     if backend in {"heuristic", "none", "disabled"}:
         return None
-    raise ValueError(f"unknown classifier backend {backend!r}; use local, hosted, or heuristic")
+    raise ValueError(f"unknown classifier backend {backend!r}; use local, hosted, clef, or heuristic")
 
 
 @dataclass

@@ -149,7 +149,7 @@
       "usd_cny_rate": 6.8
     },
     "classifier": {
-      "backend": "jev",
+      "backend": "local",
       "device": "auto",
       "model": "convaiinnovations/laya",
       "subfolder": "multilingual",
@@ -160,6 +160,12 @@
         "base_url": "https://jev-ai.pro/api/v1/",
         "api_key": "",
         "model": "jev-latest"
+      },
+      "clef": {
+        "account_id": "",
+        "api_token": "",
+        "model": "@cf/cloudflare/clef-flash",
+        "base_url": ""
       }
     },
     "failure_cost_multiplier": 1,

@@ -122,10 +122,59 @@ async function refreshStatus() {
     `;
 
     // Dynamic Title & Badge Adaptation (Laya vs Jev)
+    const isClef = !!data.is_clef;
     const isJev = !!data.is_jev;
     const jevModel = data.jev_model || "jev-latest";
+    const clefModel = data.clef_model || "@cf/cloudflare/clef-flash";
 
-    if (isJev) {
+    if (isClef) {
+      document.title = `Auto-LLM-Router 控制台 | Cloudflare Clef (${clefModel.replace('@cf/cloudflare/', '')})`;
+      const subTitle = document.getElementById("pageSubtitleText");
+      if (subTitle) {
+        subTitle.textContent = "监测 Cloudflare Workers AI 极速决策引擎与网关实时运行指标";
+      }
+      const sideTag = document.getElementById("sidebarVersionTag");
+      if (sideTag) {
+        sideTag.textContent = "Clef 39ms";
+        sideTag.style.background = "#ea580c";
+        sideTag.style.color = "#ffffff";
+      }
+      const latTitle = document.getElementById("layaLatencyTitle");
+      if (latTitle) {
+        latTitle.textContent = `Clef 决策延迟 (Workers AI)`;
+      }
+      const latBadge = document.getElementById("layaLatencyBadge");
+      if (latBadge) {
+        latBadge.textContent = "Clef 免费极速";
+        latBadge.style.background = "#fff7ed";
+        latBadge.style.color = "#ea580c";
+        latBadge.style.borderColor = "#fed7aa";
+      }
+      const latDesc = document.getElementById("kpiLayaLatencyDesc");
+      if (latDesc) {
+        latDesc.textContent = "每日享 10,000 Neurons 免费额度 · ~39ms 超低延迟";
+      }
+      const liveDesc = document.getElementById("liveTesterDesc");
+      if (liveDesc) {
+        liveDesc.textContent = "输入任意中英文提示词，调用 Cloudflare Clef-flash 决策模型进行极速分类与模型分配";
+      }
+      const chipTitle = document.getElementById("chipLayaTitle");
+      if (chipTitle) {
+        chipTitle.textContent = "☁️ Clef 分析耗时:";
+      }
+      const barLaya = document.getElementById("barLaya");
+      if (barLaya) {
+        barLaya.title = "Cloudflare Clef 提示词分析";
+      }
+      const benchLatTitle = document.getElementById("lblBenchDecisionLatTitle");
+      if (benchLatTitle) {
+        benchLatTitle.textContent = "Clef 决策平均耗时";
+      }
+      const benchDeviceSub = document.getElementById("resLayaDeviceSub");
+      if (benchDeviceSub) {
+        benchDeviceSub.textContent = "Workers AI (Cloudflare)";
+      }
+    } else if (isJev) {
       document.title = `Auto-LLM-Router 控制台 | Jev AI (${jevModel})`;
       const subTitle = document.getElementById("pageSubtitleText");
       if (subTitle) {
@@ -586,13 +635,19 @@ function populateJudgeModelSelect(selectedModel) {
   const currentVal = selectedModel || sel.value || (currentConfig?.policy?.verify?.judge_model) || "deepseek-v4-flash";
   sel.innerHTML = "";
 
-  // 1. Laya Local Engine option
+  // 1. Clef Workers AI option
+  const clefOpt = document.createElement("option");
+  clefOpt.value = "clef";
+  clefOpt.textContent = "Cloudflare Clef 极速裁决模型 (Workers AI Clef-flash)";
+  sel.appendChild(clefOpt);
+
+  // 2. Laya Local Engine option
   const layaOpt = document.createElement("option");
   layaOpt.value = "laya";
   layaOpt.textContent = "Laya 本地分类裁决引擎 (Local Engine)";
   sel.appendChild(layaOpt);
 
-  // 2. Jev Cloud Decision & Judge Engine option
+  // 3. Jev Cloud Decision & Judge Engine option
   const jevOpt = document.createElement("option");
   jevOpt.value = "jev";
   jevOpt.textContent = "Jev 云端分类裁决模型 (Hosted Jev AI / TypeSafe)";
@@ -691,6 +746,27 @@ function updateEngineBadges() {
       jevBadge.style.borderColor = "#cbd5e1";
     }
   }
+
+  // 3. Cloudflare Clef 模型卡片徽章更新
+  const clefBadge = document.getElementById("clefStatusBadge");
+  if (clefBadge) {
+    if (backend === "clef" || backend === "cloudflare") {
+      clefBadge.textContent = "● 主决策生效中";
+      clefBadge.style.background = "#fff7ed";
+      clefBadge.style.color = "#ea580c";
+      clefBadge.style.borderColor = "#fed7aa";
+    } else if (vfyEnabled && vfyJudge === "clef") {
+      clefBadge.textContent = "● 质检验收生效中";
+      clefBadge.style.background = "#eff6ff";
+      clefBadge.style.color = "#0284c7";
+      clefBadge.style.borderColor = "#bfdbfe";
+    } else {
+      clefBadge.textContent = "就绪待命 (Standby)";
+      clefBadge.style.background = "#f1f5f9";
+      clefBadge.style.color = "#64748b";
+      clefBadge.style.borderColor = "#cbd5e1";
+    }
+  }
 }
 
 // Classifier Backend Tab Switching with Highlight Feedback
@@ -702,6 +778,8 @@ function onClassifierBackendChange(triggerAnimation = false) {
     let targetCardId = null;
     if (backend === "local" || backend === "laya") {
       targetCardId = "cardLayaSettings";
+    } else if (backend === "clef" || backend === "cloudflare") {
+      targetCardId = "cardClefSettings";
     } else if (backend === "jev" || backend === "hosted") {
       targetCardId = "cardJevSettings";
     }
@@ -723,6 +801,13 @@ function onClassifierBackendChange(triggerAnimation = false) {
 
 function toggleJevKeyVisibility() {
   const inp = document.getElementById("jevApiKeyInput");
+  if (inp) {
+    inp.type = (inp.type === "password") ? "text" : "password";
+  }
+}
+
+function toggleClefKeyVisibility() {
+  const inp = document.getElementById("clefApiTokenInput");
   if (inp) {
     inp.type = (inp.type === "password") ? "text" : "password";
   }
@@ -995,6 +1080,166 @@ async function runJevDecisionTest() {
   }
 }
 
+async function testClefConnection() {
+  const btn = document.getElementById("btnTestClef");
+  const statusSpan = document.getElementById("clefTestStatus");
+  const accountId = document.getElementById("clefAccountIdInput")?.value?.trim() || "";
+  const apiToken = document.getElementById("clefApiTokenInput")?.value?.trim() || "";
+  const model = document.getElementById("clefModelSelect")?.value?.trim() || "@cf/cloudflare/clef-flash";
+  const baseUrl = document.getElementById("clefBaseUrlInput")?.value?.trim() || "";
+
+  if (statusSpan) {
+    statusSpan.innerHTML = `<span style="color: var(--primary);">⏳ 正在探测 Cloudflare Workers AI 连通性...</span>`;
+  }
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch("/api/clef/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ account_id: accountId, api_token: apiToken, model: model, base_url: baseUrl }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = (typeof data.detail === "string" ? data.detail : null) ||
+                  (Array.isArray(data.detail) ? JSON.stringify(data.detail) : null) ||
+                  data.error || data.message || `HTTP ${res.status}: 接口异常`;
+      if (statusSpan) {
+        statusSpan.innerHTML = `<span style="color: #dc2626; font-weight: 500;">❌ 探测失败: ${escapeHtml(err)}</span>`;
+      }
+      showToast(`Cloudflare 探测失败: ${err}`, "danger");
+      return;
+    }
+
+    if (data.status === "ok") {
+      if (statusSpan) {
+        statusSpan.innerHTML = `<span style="color: #059669; font-weight: 600;">✅ 连接成功！耗时: ${data.latency_ms} ms (账号: ${escapeHtml(data.account_id || '--')})</span>`;
+      }
+      showToast(`Cloudflare 连通成功！延迟: ${data.latency_ms} ms`, "success");
+    } else {
+      const err = data.error || data.message || (typeof data.detail === "string" ? data.detail : null) || "服务器探测未能完成";
+      if (statusSpan) {
+        statusSpan.innerHTML = `<span style="color: #dc2626; font-weight: 500;">❌ 探测失败: ${escapeHtml(err)}</span>`;
+      }
+      showToast(`Cloudflare 探测失败: ${err}`, "danger");
+    }
+  } catch (err) {
+    if (statusSpan) {
+      statusSpan.innerHTML = `<span style="color: #dc2626; font-weight: 500;">❌ 网络异常: ${escapeHtml(err.message)}</span>`;
+    }
+    showToast(`网络请求错误: ${err.message}`, "danger");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runClefDecisionTest() {
+  const btn = document.getElementById("btnRunClefDecisionTest");
+  const resultBox = document.getElementById("clefDecisionResultBox");
+  const promptInput = document.getElementById("clefTestPromptInput");
+  const prompt = promptInput ? promptInput.value.trim() : "";
+  if (!prompt) {
+    showToast("请输入测试提示词", "warning");
+    return;
+  }
+
+  const accountId = document.getElementById("clefAccountIdInput")?.value?.trim() || "";
+  const apiToken = document.getElementById("clefApiTokenInput")?.value?.trim() || "";
+  const model = document.getElementById("clefModelSelect")?.value?.trim() || "@cf/cloudflare/clef-flash";
+  const baseUrl = document.getElementById("clefBaseUrlInput")?.value?.trim() || "";
+
+  const origBtnHtml = btn ? btn.innerHTML : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner" style="width:13px;height:13px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> 正在运行 Clef 极速决策...`;
+  }
+
+  try {
+    const res = await fetch("/api/clef/test-decision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        account_id: accountId,
+        api_token: apiToken,
+        model: model,
+        base_url: baseUrl,
+        prompt: prompt,
+        test_judge: true,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = (typeof data.detail === "string" ? data.detail : null) ||
+                  (Array.isArray(data.detail) ? JSON.stringify(data.detail) : null) ||
+                  data.error || data.message || `HTTP ${res.status}: 接口调用异常`;
+      showToast(`Clef 决策测试失败: ${err}`, "danger");
+      return;
+    }
+
+    if (data.status === "ok") {
+      const clf = data.classification || {};
+      const judge = data.judge || {};
+
+      if (resultBox) resultBox.style.display = "block";
+
+      const catEl = document.getElementById("clefResCat");
+      if (catEl) {
+        const conf = clf.category_confidence !== undefined ? ` (${(clf.category_confidence * 100).toFixed(0)}%)` : "";
+        catEl.textContent = `${clf.category || "general"}${conf}`;
+      }
+
+      const diffEl = document.getElementById("clefResDiff");
+      if (diffEl) {
+        const diffVal = clf.difficulty !== undefined ? clf.difficulty.toFixed(3) : "--";
+        diffEl.textContent = diffVal;
+      }
+
+      const toolsEl = document.getElementById("clefResTools");
+      if (toolsEl) {
+        const needsTools = clf.needs_tools !== undefined ? (clf.needs_tools > 0.5 ? "需要工具 🛠️" : "无需工具") : "--";
+        toolsEl.textContent = `${needsTools} (${(clf.needs_tools || 0).toFixed(2)})`;
+      }
+
+      const stakesEl = document.getElementById("clefResStakes");
+      if (stakesEl) {
+        const stakesVal = clf.stakes !== undefined ? clf.stakes.toFixed(3) : "--";
+        stakesEl.textContent = stakesVal;
+      }
+
+      const adeEl = document.getElementById("clefResAdequate");
+      if (adeEl) {
+        if (judge && judge.p_adequate !== null && judge.p_adequate !== undefined) {
+          const isPass = judge.failure === null || judge.p_adequate >= 0.5;
+          adeEl.innerHTML = `<span style="color: ${isPass ? '#059669' : '#dc2626'}">${judge.p_adequate.toFixed(2)} (${isPass ? '合格' : '未达标'})</span>`;
+        } else {
+          adeEl.textContent = "未启用质检";
+        }
+      }
+
+      const metaEl = document.getElementById("clefResMeta");
+      if (metaEl) {
+        metaEl.textContent = `分类耗时: ${clf.latency_ms || 0} ms | 质检耗时: ${judge.latency_ms || 0} ms | 总耗时: ${data.total_latency_ms || 0} ms | 模型: ${clf.model || model}`;
+      }
+
+      const tokensEl = document.getElementById("clefResTokens");
+      if (tokensEl) {
+        tokensEl.textContent = `端点: ${data.endpoint || '--'}`;
+      }
+
+      showToast(`Clef 决策测试成功！已精准识别为 [${clf.category || 'general'}]，耗时: ${data.total_latency_ms || 0} ms`, "success");
+    } else {
+      showToast(`Clef 决策测试失败: ${data.error || "未知错误"}`, "danger");
+    }
+  } catch (err) {
+    showToast(`请求异常: ${err.message}`, "danger");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origBtnHtml;
+    }
+  }
+}
+
 // Render Policy Form
 function renderPolicyForm() {
   if (!currentConfig || !currentConfig.policy) return;
@@ -1028,6 +1273,17 @@ function renderPolicyForm() {
   if (jevKeyInp) jevKeyInp.value = jevCfg.api_key || clf.api_key || "";
   const jevModelInp = document.getElementById("jevModelInput");
   if (jevModelInp) jevModelInp.value = jevCfg.model || clf.model || "jev-latest";
+
+  // Clef Configuration binding
+  const clefCfg = clf.clef || clf.cloudflare || {};
+  const clefAccInp = document.getElementById("clefAccountIdInput");
+  if (clefAccInp) clefAccInp.value = clefCfg.account_id || clf.account_id || "";
+  const clefTokenInp = document.getElementById("clefApiTokenInput");
+  if (clefTokenInp) clefTokenInp.value = clefCfg.api_token || clefCfg.api_key || clf.api_token || "";
+  const clefModelInp = document.getElementById("clefModelSelect");
+  if (clefModelInp) clefModelInp.value = clefCfg.model || "@cf/cloudflare/clef-flash";
+  const clefBaseUrlInp = document.getElementById("clefBaseUrlInput");
+  if (clefBaseUrlInp) clefBaseUrlInp.value = clefCfg.base_url || "";
 
   onClassifierBackendChange(false);
   updateEngineBadges();
@@ -1075,6 +1331,11 @@ async function savePolicyConfig(section = "all") {
   const jevApiKey = document.getElementById("jevApiKeyInput")?.value?.trim() || "";
   const jevModel = document.getElementById("jevModelInput")?.value?.trim() || "jev-latest";
 
+  const clefAccountId = document.getElementById("clefAccountIdInput")?.value?.trim() || "";
+  const clefApiToken = document.getElementById("clefApiTokenInput")?.value?.trim() || "";
+  const clefModel = document.getElementById("clefModelSelect")?.value?.trim() || "@cf/cloudflare/clef-flash";
+  const clefBaseUrl = document.getElementById("clefBaseUrlInput")?.value?.trim() || "";
+
   currentConfig.policy.classifier = {
     backend: backendVal,
     device: document.getElementById("layaDeviceSelect").value,
@@ -1087,6 +1348,12 @@ async function savePolicyConfig(section = "all") {
       base_url: jevBaseUrl,
       api_key: jevApiKey,
       model: jevModel,
+    },
+    clef: {
+      account_id: clefAccountId,
+      api_token: clefApiToken,
+      model: clefModel,
+      base_url: clefBaseUrl,
     }
   };
 
@@ -1196,13 +1463,32 @@ async function runSingleTest() {
         consoleEl.scrollTop = consoleEl.scrollHeight;
       };
 
-      const updateTimingAndBars = (layaMs, scoreMs, upMs, verMs, totMs, isJev = null) => {
+      const getEngineType = (clfObj) => {
+        const eng = clfObj?.engine_type || clfObj?.source || "";
+        if (eng === "clef" || eng.startsWith("clef[") || currentConfig?.policy?.classifier?.backend === "clef" || currentConfig?.policy?.classifier?.backend === "cloudflare") {
+          return "clef";
+        }
+        if (eng === "jev" || eng.startsWith("jev[") || clfObj?.is_jev || currentConfig?.policy?.classifier?.backend === "jev" || currentConfig?.policy?.classifier?.backend === "hosted") {
+          return "jev";
+        }
+        return "laya";
+      };
+
+      const updateTimingAndBars = (layaMs, scoreMs, upMs, verMs, totMs, engineType = null) => {
         const tot = Math.max(totMs || (layaMs + scoreMs + upMs + verMs), 0.1);
-        if (isJev !== null) {
+        if (engineType !== null) {
           const chipTitle = document.getElementById("chipLayaTitle");
-          if (chipTitle) chipTitle.textContent = isJev ? "🧠 Jev 分析耗时:" : "🧠 Laya 分析耗时:";
+          if (chipTitle) {
+            if (engineType === "clef") chipTitle.textContent = "☁️ Clef 分析耗时:";
+            else if (engineType === "jev" || engineType === true) chipTitle.textContent = "🧠 Jev 分析耗时:";
+            else chipTitle.textContent = "🧠 Laya 分析耗时:";
+          }
           const barLaya = document.getElementById("barLaya");
-          if (barLaya) barLaya.title = isJev ? "Jev 提示词分析" : "Laya 提示词分析";
+          if (barLaya) {
+            if (engineType === "clef") barLaya.title = "Cloudflare Clef 提示词分析";
+            else if (engineType === "jev" || engineType === true) barLaya.title = "Jev 提示词分析";
+            else barLaya.title = "Laya 提示词分析";
+          }
         }
         document.getElementById("chipLayaMs").textContent = `${layaMs} ms`;
         document.getElementById("chipScoringMs").textContent = `${scoreMs} ms`;
@@ -1294,8 +1580,8 @@ async function runSingleTest() {
 
             const layaMs = ev.timing?.classifier_ms || 0;
             const scoreMs = ev.timing?.route_scoring_ms || 0;
-            const isJevStream = ev.classification?.engine_type === "jev" || ev.classification?.is_jev || (currentConfig?.policy?.classifier?.backend === "jev" || currentConfig?.policy?.classifier?.backend === "hosted");
-            updateTimingAndBars(layaMs, scoreMs, 0, 0, layaMs + scoreMs, isJevStream);
+            const engineTypeStream = getEngineType(ev.classification);
+            updateTimingAndBars(layaMs, scoreMs, 0, 0, layaMs + scoreMs, engineTypeStream);
           } else if (ev.type === "start_model") {
             curAttempt = ev.attempt || 1;
             if (dispCountBadge) {
@@ -1459,8 +1745,8 @@ async function runSingleTest() {
             const upMs = timing.upstream_request_ms || 0;
             const verMs = timing.verification_ms || 0;
             const totMs = timing.total_latency_ms || 0;
-            const isJevDone = ev.classification?.engine_type === "jev" || ev.classification?.is_jev || (currentConfig?.policy?.classifier?.backend === "jev" || currentConfig?.policy?.classifier?.backend === "hosted");
-            updateTimingAndBars(layaMs, scoreMs, upMs, verMs, totMs, isJevDone);
+            const engineTypeDone = getEngineType(ev.classification);
+            updateTimingAndBars(layaMs, scoreMs, upMs, verMs, totMs, engineTypeDone);
 
             if (cursorSpan && cursorSpan.parentNode) {
               cursorSpan.parentNode.removeChild(cursorSpan);
@@ -1511,11 +1797,19 @@ async function runSingleTest() {
       const upMs = timing.upstream_request_ms || 0;
       const verMs = timing.verification_ms || 0;
 
-      const isJevNonStream = data.classification?.engine_type === "jev" || data.classification?.is_jev || (currentConfig?.policy?.classifier?.backend === "jev" || currentConfig?.policy?.classifier?.backend === "hosted");
+      const engineTypeNonStream = getEngineType(data.classification);
       const chipTitle = document.getElementById("chipLayaTitle");
-      if (chipTitle) chipTitle.textContent = isJevNonStream ? "🧠 Jev 分析耗时:" : "🧠 Laya 分析耗时:";
+      if (chipTitle) {
+        if (engineTypeNonStream === "clef") chipTitle.textContent = "☁️ Clef 分析耗时:";
+        else if (engineTypeNonStream === "jev") chipTitle.textContent = "🧠 Jev 分析耗时:";
+        else chipTitle.textContent = "🧠 Laya 分析耗时:";
+      }
       const barLaya = document.getElementById("barLaya");
-      if (barLaya) barLaya.title = isJevNonStream ? "Jev 提示词分析" : "Laya 提示词分析";
+      if (barLaya) {
+        if (engineTypeNonStream === "clef") barLaya.title = "Cloudflare Clef 提示词分析";
+        else if (engineTypeNonStream === "jev") barLaya.title = "Jev 提示词分析";
+        else barLaya.title = "Laya 提示词分析";
+      }
 
       document.getElementById("resModeBadge").textContent = isEndToEnd ? "模式: 🌐 端到端全链路" : "模式: ⚡ 纯路由预测 (亚秒级)";
       document.getElementById("chipLayaMs").textContent = `${layaMs} ms`;
